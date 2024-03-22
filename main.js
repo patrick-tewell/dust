@@ -72,9 +72,11 @@ createDust.addEventListener('click', () => {
     if (dustCounter > 0) {
         animationInterval = setInterval(() => animateDust(currentDust, currentDust.style.left, currentDust.style.top), tempT);
         intervals.push(animationInterval);
-        console.log(intervals);
+        console.log(`interval push: ${intervals}`);
     } else {
-        clearInterval(intervals[dustCounter]);
+        for (intervals in intervals) {
+            clearInterval(intervals[intervals]);
+        }
     };
 
 });
@@ -85,38 +87,51 @@ createDust.addEventListener('click', () => {
 
 
 // Animation for new dust elements
+let dust = {
 
-function animateDust(currentDust, originX, originY) {
-    // Remove elements in the center
-    if (originX === "500px" && originY === "500px") {
-        currentDust.remove();
-        centerSize += sizeIncrease;
-    };
 
-    // X position animation
-    let moveX = parseInt(originX) - 500;
-    let newX;
+    
+    animateDust: (currentDust, originX, originY) => {
+        // Remove elements in the center
+        if (originX === "500px" && originY === "500px") {
+            clearInterval(intervals[currentDust]);
+            intervals.shift();
+            dustCounter--;
+            console.log(`interval shift: ${intervals}`);
+            currentDust.remove();
+            centerSize += sizeIncrease;
+        };
 
-    if (moveX < 0) {
-        newX = parseInt(originX) + 1;
-        currentDust.style.left = `${newX}px`;
-    } else if (moveX > 0) {
-        newX = parseInt(originX) - 1;
-        currentDust.style.left = `${newX}px`;
-    };
+        // X position animation
+        let moveX = parseInt(originX) - 500;
+        let newX = originX;
 
-    // Y position animation
-    let moveY = parseInt(originY) - 500;
-    let newY;
+        if (moveX < 0) {
+            newX = parseInt(originX) + 1;
+            currentDust.style.left = `${newX}px`;
+        } else if (moveX > 0) {
+            newX = parseInt(originX) - 1;
+            currentDust.style.left = `${newX}px`;
+        };
 
-    if (moveY < 0) {
-        newY = parseInt(originY) + 1;
-        currentDust.style.top = `${newY}px`;
-    } else if (moveY > 0) {
-        newY = parseInt(originY) - 1;
-        currentDust.style.top = `${newY}px`;
-    };
-};
+        // Y position animation
+        let moveY = parseInt(originY) - 500;
+        let newY = originY;
+
+        if (moveY < 0) {
+            newY = parseInt(originY) + 1;
+            currentDust.style.top = `${newY}px`;
+        } else if (moveY > 0) {
+            newY = parseInt(originY) - 1;
+            currentDust.style.top = `${newY}px`;
+        };
+    },
+
+}
+
+
+
+
 
 
 
