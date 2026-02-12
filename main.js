@@ -30,41 +30,47 @@ const sizeCostEl = document.getElementById("sizeCostDisplay");
 const speedCostEl = document.getElementById("speedCostDisplay");
 
 // --- Game state ---
-let dustLevel = 1;
-let sizeLevel = 1;
-let speedLevel = 1;      // controls cooldown between clicks
+let dustLevel = 20;
+let sizeLevel = 20;
+let speedLevel = 20;      // controls cooldown between clicks
 
-let starMass = 1000;    // accumulated mass – start at 100
-let planetRadius = 12 + Math.sqrt(starMass) * 1.2;  // initial radius matching starting mass
+let starMass = 100;    // accumulated mass – start at 100
+let starRadius = 12 + Math.sqrt(starMass) * 1.2;  // initial radius matching starting mass
 
 
 const particles = [];    // active dust particles
+const collisionFlashes = []; // brief flash effects at collision points
 
 // --- Upgrade caps ---
 const MAX_DUST_LEVEL = 20;
 const MAX_SIZE_LEVEL = 20;
 const MAX_SPEED_LEVEL = 20;
 const MAX_STAR_MASS = 10000;
+const MAX_PARTICLES = 300;   // cap on simultaneous dust particles
 
 // Effective values mapped from 20 upgrade levels to original ranges
 // Dust per click: 1 at lvl 1, 10 at lvl 20
 function getEffectiveDust() {
-    return 1 + (dustLevel - 1) * (9 / 19);
+    return dustLevel;
 }
 // Dust mass: 1 at lvl 1, 10 at lvl 20
 function getEffectiveMass() {
-    return 1 + (sizeLevel - 1) * (9 / 19);
+    return (1 + (sizeLevel - 1) * (9 / 19)) * 0.1; // base mass is 0.1, scales up to 1.0
 }
 
 // Gravity scales linearly with planet mass: 1 at 0, 10 at MAX_STAR_MASS
 function getGravityLevel() {
-    return 1 + (starMass / MAX_STAR_MASS) * 9;
+    return 1 + (starMass / MAX_STAR_MASS) * 8;
 }
+
+// How much a particle's own mass amplifies gravity's pull on it
+// and slows its orbital speed (higher = bigger effect)
+const DUST_MASS_GRAVITY_SCALE = 0.01;
 
 // --- Cost function (exponential scaling) ---
 // Level 1 ≈ 100, level 19 ≈ 9000 (20 levels, cost at current level before upgrade)
 function getUpgradeCost(currentLevel) {
-    return Math.floor(100 * Math.pow(1.28, currentLevel - 1));
+    return Math.floor(10 * Math.pow(1.28, currentLevel - 1));
 }
 
 function refreshCosts() {
@@ -99,7 +105,7 @@ function tryPurchase(btn, currentLevel, maxLevel, costFn, onSuccess) {
         return;
     }
     starMass -= cost;
-    planetRadius = 12 + Math.sqrt(starMass) * 1.2;
+    starRadius = 12 + Math.sqrt(starMass) * 1.2;
     onSuccess();
     refreshSidebar();
     refreshCosts();
@@ -147,6 +153,11 @@ refreshCosts();
 updateMaxedButtons();
 
 // --- Particle class ---
+// Shared radius formula based on mass
+function dustRadius(mass) {
+    return 2 + mass * 0.3;
+}
+
 class Dust {
     constructor(cx, cy) {
         // Spawn at a random angle, in the outer 40% of the play area
@@ -160,16 +171,23 @@ class Dust {
         this.cy = cy;           // center y
         this.x = cx + Math.cos(angle) * dist;
         this.y = cy + Math.sin(angle) * dist;
-        this.radius = 2 + getEffectiveMass() * 0.1;  // visual size scales with Size upgrade
         this.mass = getEffectiveMass();                 // snapshot mass at creation time
+        this.radius = dustRadius(this.mass);  // visual size scales with mass
         this.alive = true;
+
+        // Random color variation: light to dark brown
+        const t = Math.random(); // 0 = dark brown, 1 = light brown
+        this.colorR = Math.round(100 + t * 139);  // 100–239
+        this.colorG = Math.round(60 + t * 110);   // 60–170
+        this.colorB = Math.round(30 + t * 70);    // 30–100
+        this.color = `rgb(${this.colorR},${this.colorG},${this.colorB})`;
 
         // Orbital velocity (tangent to the radius vector)
         // Scale with gravity so particles don't dive straight in at high gravity,
         // but cap at ~70% of true orbital speed so they always spiral inward.
-        const gravityStrength = 0.02 * getGravityLevel();
-        const orbitalSpeed = Math.sqrt(gravityStrength * dist);
-        const speed = orbitalSpeed * (0.6 + Math.random() * 0.15);
+        const gravityStrength = 0.03 * getGravityLevel();
+        const orbitalSpeed = Math.sqrt(gravityStrength * dist * 0.55);
+        const speed = orbitalSpeed * (0.5 + Math.random() * 0.75);
         this.vx = -Math.sin(angle) * speed;
         this.vy = Math.cos(angle) * speed;
 
@@ -187,37 +205,40 @@ class Dust {
         const dy = this.cy - this.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
 
-        if (dist < planetRadius + this.radius) {
+        if (dist < starRadius + this.radius) {
             // Absorbed by the planet
             this.alive = false;
             starMass = Math.min(starMass + this.mass, MAX_STAR_MASS);
             // Grow planet radius slowly (diminishing returns via sqrt)
-            planetRadius = 12 + Math.sqrt(starMass) * 1.2;
+            starRadius = 12 + Math.sqrt(starMass) * 1.2;
             refreshSidebar();
             refreshCosts();
             updateMaxedButtons();
             return;
         }
 
-        // Gravity pull toward center – strength scales with upgrade level
-        const gravityStrength = 0.02 * getGravityLevel();
+        // Gravity pull toward center – strength scales with gravity level and particle mass
+        const massGravityMult = 1 + this.mass * DUST_MASS_GRAVITY_SCALE;
+        const gravityStrength =  (getGravityLevel() * massGravityMult) * 0.01;
         const ax = (dx / dist) * gravityStrength;
         const ay = (dy / dist) * gravityStrength;
 
         this.vx += ax;
         this.vy += ay;
 
-        // Light drag so orbits slowly decay (creates the spiral-in effect)
-        const drag = 0.999;
+        // Drag increases with mass – heavy particles slow down and crash
+        // Drag: base decay + gentle mass factor with a floor so heavy particles don't freeze
+        const drag = Math.max(0.999 - this.mass * 0.0005, 0.993);
         this.vx *= drag;
         this.vy *= drag;
 
         this.x += this.vx;
         this.y += this.vy;
 
-        // Record trail position, cap length based on mass
+        // Record trail position, cap length based on mass and speed
         this.trail.push({ x: this.x, y: this.y });
-        const maxTrail = Math.floor(5 + this.mass * 3);
+        const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+        const maxTrail = Math.min(Math.floor(5 + this.mass * 10 + speed * 5), 53);
         if (this.trail.length > maxTrail) {
             this.trail.splice(0, this.trail.length - maxTrail);
         }
@@ -233,7 +254,7 @@ class Dust {
                 const r = this.radius * t * 0.8;
                 ctx.beginPath();
                 ctx.arc(this.trail[i].x, this.trail[i].y, Math.max(r, 0.5), 0, Math.PI * 2);
-                ctx.fillStyle = `rgba(224, 163, 92, ${alpha})`;
+                ctx.fillStyle = `rgba(${this.colorR}, ${this.colorG}, ${this.colorB}, ${alpha})`;
                 ctx.fill();
             }
         }
@@ -241,18 +262,28 @@ class Dust {
         // Draw particle
         ctx.beginPath();
         ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
-        ctx.fillStyle = "#e0a35c";
+        ctx.fillStyle = this.color;
         ctx.fill();
     }
 }
 
 // --- Create dust on click (with cooldown) ---
-function spawnDust() {
+function spawnDust(silent) {
     if (onCooldown) return;
+
+    if (particles.length + getEffectiveDust() > MAX_PARTICLES) {
+        if (!silent) {
+            createDustBtn.classList.remove("flash-red");
+            void createDustBtn.offsetWidth;
+            createDustBtn.classList.add("flash-red");
+            createDustBtn.addEventListener("animationend", () => createDustBtn.classList.remove("flash-red"), { once: true });
+        }
+        return;
+    }
 
     const cx = canvas.width / 2;
     const cy = canvas.height / 2;
-    const count = Math.floor(getEffectiveDust());
+    const count = Math.min(getEffectiveDust(), MAX_PARTICLES - particles.length);
     for (let i = 0; i < count; i++) {
         particles.push(new Dust(cx, cy));
     }
@@ -273,7 +304,7 @@ let autoPlaying = false;
 autoPlayBtn.addEventListener("click", () => {
     autoPlaying = !autoPlaying;
     autoPlayBtn.classList.toggle("active", autoPlaying);
-    if (autoPlaying && !onCooldown) spawnDust();
+    if (autoPlaying && !onCooldown) spawnDust(true);
 });
 
 // --- Background stars (static, generated once) ---
@@ -358,23 +389,23 @@ function drawPlanet() {
     const highColor = planetHighlight(t);
 
     // Outer glow – tint follows the planet colour
-    const glow = ctx.createRadialGradient(cx, cy, planetRadius * 0.5, cx, cy, planetRadius * 2.5);
+    const glow = ctx.createRadialGradient(cx, cy, starRadius * 0.5, cx, cy, starRadius * 2.5);
     glow.addColorStop(0, coreColor.replace("rgb", "rgba").replace(")", ",0.45)"));
     glow.addColorStop(1, coreColor.replace("rgb", "rgba").replace(")", ",0)"));
     ctx.beginPath();
-    ctx.arc(cx, cy, planetRadius * 2.5, 0, Math.PI * 2);
+    ctx.arc(cx, cy, starRadius * 2.5, 0, Math.PI * 2);
     ctx.fillStyle = glow;
     ctx.fill();
 
     // Planet body
     const grad = ctx.createRadialGradient(
-        cx - planetRadius * 0.3, cy - planetRadius * 0.3, planetRadius * 0.1,
-        cx, cy, planetRadius
+        cx - starRadius * 0.3, cy - starRadius * 0.3, starRadius * 0.1,
+        cx, cy, starRadius
     );
     grad.addColorStop(0, highColor);
     grad.addColorStop(1, coreColor);
     ctx.beginPath();
-    ctx.arc(cx, cy, planetRadius, 0, Math.PI * 2);
+    ctx.arc(cx, cy, starRadius, 0, Math.PI * 2);
     ctx.fillStyle = grad;
     ctx.fill();
 }
@@ -412,12 +443,30 @@ function gameLoop(now) {
             const distSq = dx * dx + dy * dy;
             const minDist = a.radius + b.radius;
             if (distSq < minDist * minDist) {
-                // Merge b into a (conservation of momentum)
+                // Record collision flash at midpoint
+                const flashX = (a.x + b.x) / 2;
+                const flashY = (a.y + b.y) / 2;
+                collisionFlashes.push({ x: flashX, y: flashY, life: 1.0, radius: minDist * 1.5 });
+
+                // Merge b into a (conservation of momentum for direction,
+                // but preserve at least the faster particle's speed)
                 const totalMass = a.mass + b.mass;
-                a.vx = (a.vx * a.mass + b.vx * b.mass) / totalMass;
-                a.vy = (a.vy * a.mass + b.vy * b.mass) / totalMass;
+                const mvx = (a.vx * a.mass + b.vx * b.mass) / totalMass;
+                const mvy = (a.vy * a.mass + b.vy * b.mass) / totalMass;
+                const mergedSpeed = Math.sqrt(mvx * mvx + mvy * mvy);
+                const speedA = Math.sqrt(a.vx * a.vx + a.vy * a.vy);
+                const speedB = Math.sqrt(b.vx * b.vx + b.vy * b.vy);
+                const keepSpeed = Math.max(mergedSpeed, Math.max(speedA, speedB) * 0.85);
+                if (mergedSpeed > 0.001) {
+                    a.vx = (mvx / mergedSpeed) * keepSpeed;
+                    a.vy = (mvy / mergedSpeed) * keepSpeed;
+                } else {
+                    a.vx = mvx;
+                    a.vy = mvy;
+                }
                 a.mass = totalMass;
-                a.radius = 2 + a.mass * 0.5;
+                a.radius = dustRadius(a.mass);
+
                 b.alive = false;
             }
         }
@@ -433,6 +482,17 @@ function gameLoop(now) {
         p.draw(ctx);
     }
 
+    // Draw and decay collision flashes
+    for (let i = collisionFlashes.length - 1; i >= 0; i--) {
+        const f = collisionFlashes[i];
+        ctx.beginPath();
+        ctx.arc(f.x, f.y, f.radius * (1 - f.life * 0.5), 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(255, 240, 200, ${f.life * 0.35})`;
+        ctx.fill();
+        f.life -= 0.06;
+        if (f.life <= 0) collisionFlashes.splice(i, 1);
+    }
+
     // Draw planet on top so absorbed dust disappears cleanly
     drawPlanet();
 
@@ -444,11 +504,16 @@ function gameLoop(now) {
             cooldownBar.style.width = "0%";
             createDustBtn.classList.remove("on-cooldown");
             // Auto-play: immediately click again
-            if (autoPlaying) spawnDust();
+            if (autoPlaying) spawnDust(true);
         } else {
             const pct = (1 - remaining / cooldownDuration) * 100;
             cooldownBar.style.width = pct + "%";
         }
+    }
+
+    // Auto-play: keep retrying when cooldown is off but cap was hit
+    if (autoPlaying && !onCooldown && particles.length + getEffectiveDust() <= MAX_PARTICLES) {
+        spawnDust(true);
     }
 
     requestAnimationFrame(gameLoop);
