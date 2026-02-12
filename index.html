@@ -1,6 +1,5 @@
 ﻿<!DOCTYPE html>
-
-<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+<html lang="en">
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,33 +7,44 @@
     <link rel="stylesheet" href="StyleSheet1.css" />
 </head>
 <body>
+    <div id="sidebar">
+        <h1 id="massDisplay">200</h1>
+        <p id="massLabel">MASS</p>
+        <div id="statsList">
+            <div class="statRow"><span class="statLabel">Dust</span><span class="statValue" id="dustLevelDisplay">1</span></div>
+            <div class="statRow"><span class="statLabel">Size</span><span class="statValue" id="sizeLevelDisplay">1</span></div>
+            <div class="statRow"><span class="statLabel">Speed</span><span class="statValue" id="speedLevelDisplay">1</span></div>
+            <div class="statRow"><span class="statLabel">Gravity</span><span class="statValue" id="gravityLevelDisplay">1.0</span></div>
+        </div>
+    </div>
+
     <div id="upgradeBar">
         <div class="upgradeBlock">
             <button class="upgradeButton" id="dustPerClickButton">Dust</button>
-            <p id="dustPerClickDisplay">1</p>
+            <p class="upgradeCost" id="dustCostDisplay">10</p>
         </div>
         <div class="upgradeBlock">
             <button class="upgradeButton" id="dustSizeButton">Size</button>
-            <p id="dustSizeDisplay">1</p>
+            <p class="upgradeCost" id="sizeCostDisplay">10</p>
         </div>
         <div class="upgradeBlock">
-            <button class="upgradeButton" id="gravityButton">Gravity</button>
-            <p id="gravityDisplay">1</p>
+            <button class="upgradeButton" id="speedButton">Speed</button>
+            <p class="upgradeCost" id="speedCostDisplay">10</p>
         </div>
-        
-        
-
-        <button class="upgradeButton"></button>
-        <button class="upgradeButton"></button>
-        <button class="upgradeButton"></button>
-        <button class="upgradeButton"></button>
     </div>
 
     <div id="playArea">
-        <div id="center"></div>
+        <canvas id="gameCanvas"></canvas>
     </div>
-    <div>
-        <button id="createDust" type="button">CREATE DUST</button>
+
+    <div id="bottomBar">
+        <button id="createDust" type="button">
+            <span id="createDustText">CREATE DUST</span>
+            <div id="cooldownBar"></div>
+        </button>
+        <button id="autoPlayBtn" type="button">
+            <svg viewBox="0 0 24 24" width="28" height="28"><polygon points="6,4 20,12 6,20" fill="currentColor"/></svg>
+        </button>
     </div>
 
     <script src="main.js"></script>
