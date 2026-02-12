@@ -30,43 +30,53 @@ const sizeCostEl = document.getElementById("sizeCostDisplay");
 const speedCostEl = document.getElementById("speedCostDisplay");
 
 // --- Game state ---
-let dustPerClick = 1;
-let dustMass = 1;        // mass added to planet per particle absorbed
+let dustLevel = 1;
+let sizeLevel = 1;
 let speedLevel = 1;      // controls cooldown between clicks
 
-let starMass = 100;    // accumulated mass – start at 100
+let starMass = 1000;    // accumulated mass – start at 100
 let planetRadius = 12 + Math.sqrt(starMass) * 1.2;  // initial radius matching starting mass
 
 
 const particles = [];    // active dust particles
 
 // --- Upgrade caps ---
-const MAX_DUST_PER_CLICK = 10;
-const MAX_DUST_MASS = 10;
-const MAX_SPEED = 10;
+const MAX_DUST_LEVEL = 20;
+const MAX_SIZE_LEVEL = 20;
+const MAX_SPEED_LEVEL = 20;
 const MAX_STAR_MASS = 10000;
+
+// Effective values mapped from 20 upgrade levels to original ranges
+// Dust per click: 1 at lvl 1, 10 at lvl 20
+function getEffectiveDust() {
+    return 1 + (dustLevel - 1) * (9 / 19);
+}
+// Dust mass: 1 at lvl 1, 10 at lvl 20
+function getEffectiveMass() {
+    return 1 + (sizeLevel - 1) * (9 / 19);
+}
 
 // Gravity scales linearly with planet mass: 1 at 0, 10 at MAX_STAR_MASS
 function getGravityLevel() {
     return 1 + (starMass / MAX_STAR_MASS) * 9;
 }
 
-// --- Cost function (scales with current mass) ---
-// Base cost 10, multiplied by level, scaled by total mass bracket
+// --- Cost function (exponential scaling) ---
+// Level 1 ≈ 100, level 19 ≈ 9000 (20 levels, cost at current level before upgrade)
 function getUpgradeCost(currentLevel) {
-    return Math.floor(10 * currentLevel * (1 + MAX_STAR_MASS / 250));
+    return Math.floor(100 * Math.pow(1.28, currentLevel - 1));
 }
 
 function refreshCosts() {
-    dustCostEl.textContent = dustPerClick >= MAX_DUST_PER_CLICK ? "MAX" : getUpgradeCost(dustPerClick);
-    sizeCostEl.textContent = dustMass >= MAX_DUST_MASS ? "MAX" : getUpgradeCost(dustMass);
-    speedCostEl.textContent = speedLevel >= MAX_SPEED ? "MAX" : getUpgradeCost(speedLevel);
+    dustCostEl.textContent = dustLevel >= MAX_DUST_LEVEL ? "MAX" : getUpgradeCost(dustLevel);
+    sizeCostEl.textContent = sizeLevel >= MAX_SIZE_LEVEL ? "MAX" : getUpgradeCost(sizeLevel);
+    speedCostEl.textContent = speedLevel >= MAX_SPEED_LEVEL ? "MAX" : getUpgradeCost(speedLevel);
 }
 
 function refreshSidebar() {
     massDisplayEl.textContent = Math.floor(starMass);
-    dustLevelEl.textContent = dustPerClick;
-    sizeLevelEl.textContent = dustMass;
+    dustLevelEl.textContent = dustLevel;
+    sizeLevelEl.textContent = sizeLevel;
     speedLevelEl.textContent = speedLevel;
     gravityLevelEl.textContent = getGravityLevel().toFixed(1);
 }
@@ -97,9 +107,9 @@ function tryPurchase(btn, currentLevel, maxLevel, costFn, onSuccess) {
 }
 
 function updateMaxedButtons() {
-    dustPerClickBtn.classList.toggle("maxed", dustPerClick >= MAX_DUST_PER_CLICK);
-    dustSizeBtn.classList.toggle("maxed", dustMass >= MAX_DUST_MASS);
-    speedBtn.classList.toggle("maxed", speedLevel >= MAX_SPEED);
+    dustPerClickBtn.classList.toggle("maxed", dustLevel >= MAX_DUST_LEVEL);
+    dustSizeBtn.classList.toggle("maxed", sizeLevel >= MAX_SIZE_LEVEL);
+    speedBtn.classList.toggle("maxed", speedLevel >= MAX_SPEED_LEVEL);
 }
 
 // --- Cooldown state ---
@@ -107,26 +117,26 @@ let cooldownEnd = 0;     // timestamp when cooldown expires
 let cooldownDuration = 0; // current cooldown length in ms
 let onCooldown = false;
 
-// Cooldown scales linearly: 1.25s at lvl 1, 0.25s at lvl 10
+// Cooldown scales linearly: 1.25s at lvl 1, 0.25s at lvl 20
 function getCooldownMs() {
-    return (1.25 - (speedLevel - 1) * (1.0 / 9)) * 1000;
+    return (1.25 - (speedLevel - 1) * (1.0 / 19)) * 1000;
 }
 
 // --- Upgrade buttons ---
 dustPerClickBtn.addEventListener("click", () => {
-    tryPurchase(dustPerClickBtn, dustPerClick, MAX_DUST_PER_CLICK,
-        () => getUpgradeCost(dustPerClick),
-        () => { dustPerClick += 1; });
+    tryPurchase(dustPerClickBtn, dustLevel, MAX_DUST_LEVEL,
+        () => getUpgradeCost(dustLevel),
+        () => { dustLevel += 1; });
 });
 
 dustSizeBtn.addEventListener("click", () => {
-    tryPurchase(dustSizeBtn, dustMass, MAX_DUST_MASS,
-        () => getUpgradeCost(dustMass),
-        () => { dustMass += 1; });
+    tryPurchase(dustSizeBtn, sizeLevel, MAX_SIZE_LEVEL,
+        () => getUpgradeCost(sizeLevel),
+        () => { sizeLevel += 1; });
 });
 
 speedBtn.addEventListener("click", () => {
-    tryPurchase(speedBtn, speedLevel, MAX_SPEED,
+    tryPurchase(speedBtn, speedLevel, MAX_SPEED_LEVEL,
         () => getUpgradeCost(speedLevel),
         () => { speedLevel += 1; });
 });
@@ -139,25 +149,32 @@ updateMaxedButtons();
 // --- Particle class ---
 class Dust {
     constructor(cx, cy) {
-        // Spawn at a random angle, at a random orbit distance from center
+        // Spawn at a random angle, in the outer 40% of the play area
         const angle = Math.random() * Math.PI * 2;
-        const minDist = planetRadius + 40;
-        // Keep orbits within the smaller viewport dimension so they stay visible
-        const maxDist = Math.min(canvas.width, canvas.height) / 2 - 10;
+        const halfSize = Math.min(canvas.width, canvas.height) / 2;
+        const maxDist = halfSize - 10;           // stay on screen
+        const minDist = halfSize * 0.6;          // no closer than 60% of radius
         const dist = minDist + Math.random() * (maxDist - minDist);
 
         this.cx = cx;           // center x (of play area)
         this.cy = cy;           // center y
         this.x = cx + Math.cos(angle) * dist;
         this.y = cy + Math.sin(angle) * dist;
-        this.radius = 2 + dustMass * 0.5;  // visual size scales with Size upgrade
-        this.mass = dustMass;                 // snapshot mass at creation time
+        this.radius = 2 + getEffectiveMass() * 0.1;  // visual size scales with Size upgrade
+        this.mass = getEffectiveMass();                 // snapshot mass at creation time
         this.alive = true;
 
         // Orbital velocity (tangent to the radius vector)
-        const speed = 1.2 + Math.random() * 0.8;
+        // Scale with gravity so particles don't dive straight in at high gravity,
+        // but cap at ~70% of true orbital speed so they always spiral inward.
+        const gravityStrength = 0.02 * getGravityLevel();
+        const orbitalSpeed = Math.sqrt(gravityStrength * dist);
+        const speed = orbitalSpeed * (0.6 + Math.random() * 0.15);
         this.vx = -Math.sin(angle) * speed;
         this.vy = Math.cos(angle) * speed;
+
+        // Trail history – length scales with mass
+        this.trail = [];
     }
 
     update(dt) {
@@ -170,7 +187,7 @@ class Dust {
         const dy = this.cy - this.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
 
-        if (dist < planetRadius) {
+        if (dist < planetRadius + this.radius) {
             // Absorbed by the planet
             this.alive = false;
             starMass = Math.min(starMass + this.mass, MAX_STAR_MASS);
@@ -197,9 +214,31 @@ class Dust {
 
         this.x += this.vx;
         this.y += this.vy;
+
+        // Record trail position, cap length based on mass
+        this.trail.push({ x: this.x, y: this.y });
+        const maxTrail = Math.floor(5 + this.mass * 3);
+        if (this.trail.length > maxTrail) {
+            this.trail.splice(0, this.trail.length - maxTrail);
+        }
     }
 
     draw(ctx) {
+        // Draw trail
+        const len = this.trail.length;
+        if (len > 1) {
+            for (let i = 0; i < len - 1; i++) {
+                const t = i / len; // 0 (oldest) to ~1 (newest)
+                const alpha = t * 0.4;
+                const r = this.radius * t * 0.8;
+                ctx.beginPath();
+                ctx.arc(this.trail[i].x, this.trail[i].y, Math.max(r, 0.5), 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(224, 163, 92, ${alpha})`;
+                ctx.fill();
+            }
+        }
+
+        // Draw particle
         ctx.beginPath();
         ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
         ctx.fillStyle = "#e0a35c";
@@ -213,7 +252,8 @@ function spawnDust() {
 
     const cx = canvas.width / 2;
     const cy = canvas.height / 2;
-    for (let i = 0; i < dustPerClick; i++) {
+    const count = Math.floor(getEffectiveDust());
+    for (let i = 0; i < count; i++) {
         particles.push(new Dust(cx, cy));
     }
 
@@ -358,6 +398,34 @@ function gameLoop(now) {
         if (!particles[i].alive) {
             particles.splice(i, 1);
         }
+    }
+
+    // Dust-to-dust collisions
+    for (let i = 0; i < particles.length; i++) {
+        const a = particles[i];
+        if (!a.alive) continue;
+        for (let j = i + 1; j < particles.length; j++) {
+            const b = particles[j];
+            if (!b.alive) continue;
+            const dx = a.x - b.x;
+            const dy = a.y - b.y;
+            const distSq = dx * dx + dy * dy;
+            const minDist = a.radius + b.radius;
+            if (distSq < minDist * minDist) {
+                // Merge b into a (conservation of momentum)
+                const totalMass = a.mass + b.mass;
+                a.vx = (a.vx * a.mass + b.vx * b.mass) / totalMass;
+                a.vy = (a.vy * a.mass + b.vy * b.mass) / totalMass;
+                a.mass = totalMass;
+                a.radius = 2 + a.mass * 0.5;
+                b.alive = false;
+            }
+        }
+    }
+
+    // Cull merged particles
+    for (let i = particles.length - 1; i >= 0; i--) {
+        if (!particles[i].alive) particles.splice(i, 1);
     }
 
     // Draw particles
