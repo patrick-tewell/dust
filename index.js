@@ -34,7 +34,7 @@ let dustLevel = 1;
 let sizeLevel = 1;
 let speedLevel = 1;      // controls cooldown between clicks
 
-let starMass = 10000;    // accumulated mass – start at 100
+let starMass = 100;    // accumulated mass – start at 100
 let starRadius = 12 + Math.sqrt(starMass) * 1.2;  // initial radius matching starting mass
 
 
