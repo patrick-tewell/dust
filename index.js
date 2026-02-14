@@ -68,7 +68,7 @@ class Meteor {
         const dx = this.cx - this.x;
         const dy = this.cy - this.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
-        const speed = 4 + Math.random() * (starMass / 1000); // Fast, straight line
+        const speed = 4 + (Math.random() * 10) * (starMass / 1000); // Fast, straight line
         this.vx = (dx / dist) * speed;
         this.vy = (dy / dist) * speed;
     }
