@@ -53,7 +53,7 @@ class Meteor {
     constructor(x, y) {
         this.x = x;
         this.y = y;
-        this.mass = getEffectiveMass() * 2; // Meteors are heavier
+        this.mass = getEffectiveMass() * 20; // Meteors are heavier
         this.radius = dustRadius(this.mass) * 1.2;
         this.alive = true;
         this.trail = [];
@@ -68,7 +68,7 @@ class Meteor {
         const dx = this.cx - this.x;
         const dy = this.cy - this.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
-        const speed = 7 + Math.random() * 2; // Fast, straight line
+        const speed = 4 + Math.random() * (starMass / 1000); // Fast, straight line
         this.vx = (dx / dist) * speed;
         this.vy = (dy / dist) * speed;
     }
