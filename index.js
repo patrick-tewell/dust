@@ -29,10 +29,17 @@ const dustCostEl = document.getElementById("dustCostDisplay");
 const sizeCostEl = document.getElementById("sizeCostDisplay");
 const speedCostEl = document.getElementById("speedCostDisplay");
 
+
 // --- Game state ---
 let dustLevel = 1;
 let sizeLevel = 1;
 let speedLevel = 1;      // controls cooldown between clicks
+
+let meteorCapacityLevel = 0; // Meteor capacity upgrade level (0-20)
+const MAX_METEOR_CAPACITY_LEVEL = 20;
+let currentMeteors = 0; // Current meteor inventory
+let meteorRecharge = 1.5; // seconds per meteor recharge (can be tuned)
+let meteorCooldownEnd = 0; // timestamp for next meteor recharge
 
 let starMass = 100;    // accumulated mass – start at 100
 let starRadius = 12 + Math.sqrt(starMass) * 1.2;  // initial radius matching starting mass
@@ -110,7 +117,12 @@ class Meteor {
 }
 
 let meteorSummonMode = false;
+
 const meteorModeBtn = document.getElementById("meteorModeBtn");
+const meteorCapacityBtn = document.getElementById("meteorCapacityButton");
+const meteorCapacityCostEl = document.getElementById("meteorCapacityCostDisplay");
+const meteorInventoryEl = document.getElementById("meteorInventoryDisplay");
+
 meteorModeBtn.addEventListener("click", () => {
     meteorSummonMode = !meteorSummonMode;
     meteorModeBtn.classList.toggle("active", meteorSummonMode);
@@ -118,10 +130,16 @@ meteorModeBtn.addEventListener("click", () => {
 
 canvas.addEventListener("mousedown", (e) => {
     if (!meteorSummonMode) return;
+    if (currentMeteors < 1) {
+        flashButton(meteorModeBtn);
+        return;
+    }
     const rect = canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
     meteors.push(new Meteor(x, y));
+    currentMeteors -= 1;
+    refreshMeteorInventory();
 });
 
 const MAX_DUST_LEVEL = 20;
@@ -151,11 +169,16 @@ function getUpgradeCost(currentLevel) {
     return Math.floor(10 * Math.pow(1.28, currentLevel - 1));
 }
 
+
 function refreshCosts() {
     dustCostEl.textContent = dustLevel >= MAX_DUST_LEVEL ? "MAX" : getUpgradeCost(dustLevel);
     sizeCostEl.textContent = sizeLevel >= MAX_SIZE_LEVEL ? "MAX" : getUpgradeCost(sizeLevel);
     speedCostEl.textContent = speedLevel >= MAX_SPEED_LEVEL ? "MAX" : getUpgradeCost(speedLevel);
+    if (meteorCapacityCostEl) {
+        meteorCapacityCostEl.textContent = meteorCapacityLevel >= MAX_METEOR_CAPACITY_LEVEL ? "MAX" : getUpgradeCost(meteorCapacityLevel + 1);
+    }
 }
+
 
 function refreshSidebar() {
     massDisplayEl.textContent = Math.floor(starMass);
@@ -163,6 +186,17 @@ function refreshSidebar() {
     sizeLevelEl.textContent = sizeLevel;
     speedLevelEl.textContent = speedLevel;
     gravityLevelEl.textContent = getGravityLevel().toFixed(1);
+    refreshMeteorInventory();
+}
+
+function refreshMeteorInventory() {
+    if (meteorInventoryEl) {
+        meteorInventoryEl.textContent = `${currentMeteors} / ${meteorCapacityLevel}`;
+    }
+    if (meteorModeBtn) {
+        meteorModeBtn.disabled = meteorCapacityLevel === 0;
+        meteorModeBtn.classList.toggle("maxed", meteorCapacityLevel === 0);
+    }
 }
 
 // Flash a button red when purchase is denied
@@ -190,10 +224,42 @@ function tryPurchase(btn, currentLevel, maxLevel, costFn, onSuccess) {
     updateMaxedButtons();
 }
 
+
 function updateMaxedButtons() {
     dustPerClickBtn.classList.toggle("maxed", dustLevel >= MAX_DUST_LEVEL);
     dustSizeBtn.classList.toggle("maxed", sizeLevel >= MAX_SIZE_LEVEL);
     speedBtn.classList.toggle("maxed", speedLevel >= MAX_SPEED_LEVEL);
+    if (meteorCapacityBtn) {
+        meteorCapacityBtn.classList.toggle("maxed", meteorCapacityLevel >= MAX_METEOR_CAPACITY_LEVEL);
+    }
+}
+// --- Meteor Capacity Upgrade ---
+if (meteorCapacityBtn) {
+    meteorCapacityBtn.addEventListener("click", () => {
+        tryPurchase(meteorCapacityBtn, meteorCapacityLevel, MAX_METEOR_CAPACITY_LEVEL,
+            () => getUpgradeCost(meteorCapacityLevel + 1),
+            () => {
+                meteorCapacityLevel += 1;
+                // On first upgrade, fill inventory
+                if (meteorCapacityLevel === 1) {
+                    currentMeteors = 1;
+                } else {
+                    currentMeteors = Math.min(currentMeteors + 1, meteorCapacityLevel);
+                }
+                refreshMeteorInventory();
+            });
+    });
+}
+
+// --- Meteor Recharge Logic ---
+function updateMeteorRecharge(now) {
+    if (meteorCapacityLevel === 0) return;
+    if (currentMeteors >= meteorCapacityLevel) return;
+    if (now >= meteorCooldownEnd) {
+        currentMeteors = Math.min(currentMeteors + 1, meteorCapacityLevel);
+        meteorCooldownEnd = now + meteorRecharge * 1000;
+        refreshMeteorInventory();
+    }
 }
 
 // --- Cooldown state ---
@@ -537,6 +603,9 @@ function gameLoop(now) {
             meteors.splice(i, 1);
         }
     }
+
+    // Meteor recharge
+    updateMeteorRecharge(now);
 
     // Dust-to-dust collisions
     for (let i = 0; i < particles.length; i++) {

@@ -1,4 +1,9 @@
-﻿#meteorModeBtn {
+﻿#meteorInventoryDisplay {
+    color: #e0a35c;
+    font-weight: bold;
+    font-size: 16px;
+}
+#meteorModeBtn {
     width: 80px;
     height: 40px;
     font-size: 18px;
@@ -340,7 +345,7 @@ body {
     .upgradeButton {
         width: 4rem;
         min-width: 80px;
-        font-size: 18px;
+        font-size: 1rem;
     }
 
     #createDust {
@@ -363,8 +368,8 @@ body {
         max-width: 60px;
     }
      .upgradeButton {
-        width: 4rem;
-        min-width: 80px;
-        font-size: 18px;
+        width: 3rem;
+        min-width: 60px;
+        font-size: auto;
     }
 }
