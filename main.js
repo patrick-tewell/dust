@@ -30,11 +30,11 @@ const sizeCostEl = document.getElementById("sizeCostDisplay");
 const speedCostEl = document.getElementById("speedCostDisplay");
 
 // --- Game state ---
-let dustLevel = 20;
-let sizeLevel = 20;
-let speedLevel = 20;      // controls cooldown between clicks
+let dustLevel = 1;
+let sizeLevel = 1;
+let speedLevel = 1;      // controls cooldown between clicks
 
-let starMass = 100;    // accumulated mass – start at 100
+let starMass = 10000;    // accumulated mass – start at 100
 let starRadius = 12 + Math.sqrt(starMass) * 1.2;  // initial radius matching starting mass
 
 
@@ -307,31 +307,52 @@ autoPlayBtn.addEventListener("click", () => {
     if (autoPlaying && !onCooldown) spawnDust(true);
 });
 
-// --- Background stars (static, generated once) ---
-// Stars stored as normalised viewport coords (0-1) so they cover the full screen.
+// --- Background stars (static, generated once at large virtual size) ---
+// Stars are generated once at a large virtual canvas, then scaled to fit window.
+const VIRTUAL_STAR_SIZE = 8000; // Larger to cover big screens
+const VIRTUAL_CENTER = VIRTUAL_STAR_SIZE / 2;
 const stars = [];
+// Minimum dead zone radius multiplier (planet radius * this)
+const STAR_DEADZONE_MULT = 0.75;
+function getVirtualDeadZoneRadius() {
+    // Estimate max possible starRadius at max mass
+    // starRadius = 12 + Math.sqrt(starMass) * 1.2
+    // Use MAX_STAR_MASS for largest possible deadzone
+    return (12 + Math.sqrt(MAX_STAR_MASS) * 1.2) * STAR_DEADZONE_MULT * (VIRTUAL_STAR_SIZE / Math.max(window.innerWidth, window.innerHeight));
+}
 function generateStars() {
     stars.length = 0;
-    const count = 250;
-    for (let i = 0; i < count; i++) {
-        stars.push({
-            rx: Math.random(),
-            ry: Math.random(),
-            r: Math.random() * 1.5 + 0.3,
-            brightness: Math.random() * 0.5 + 0.3
-        });
+    const count = 400;
+    const minDeadZone = getVirtualDeadZoneRadius();
+    for (let i = 0; i < count; ) {
+        const angle = Math.random() * 2 * Math.PI;
+        const radius = Math.random() * (VIRTUAL_STAR_SIZE / 2);
+        // Filter: don't allow stars too close to center (planet)
+        if (radius < minDeadZone) continue;
+        const dx = Math.cos(angle) * radius;
+        const dy = Math.sin(angle) * radius;
+        const size = Math.random() * 1.5 + 3;
+        stars.push({ dx, dy, size });
+        i++;
     }
 }
 generateStars();
-window.addEventListener("resize", generateStars);
 
-function drawStars() {
-    const cw = canvas.width;
-    const ch = canvas.height;
-    for (const s of stars) {
+// When drawing stars, scale/center to fit window
+function drawStars(ctx, stars, canvasWidth, canvasHeight) {
+    const scale = Math.min(canvasWidth * 2, canvasHeight * 2) / VIRTUAL_STAR_SIZE;
+    const centerX = canvasWidth / 2;
+    const centerY = canvasHeight / 2;
+    ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+    ctx.fillStyle = "#fff";
+    // Calculate current deadzone in virtual space based on current starRadius
+    const currentDeadZone = starRadius * STAR_DEADZONE_MULT / scale;
+    for (const star of stars) {
+        // Optionally, skip drawing if star is inside current deadzone (planet grew)
+        const dist = Math.sqrt(star.dx * star.dx + star.dy * star.dy);
+        if (dist < currentDeadZone) continue;
         ctx.beginPath();
-        ctx.arc(s.rx * cw, s.ry * ch, s.r, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(255, 255, 255, ${s.brightness})`;
+        ctx.arc(centerX + star.dx * scale, centerY + star.dy * scale, star.size * scale, 0, 2 * Math.PI);
         ctx.fill();
     }
 }
@@ -421,7 +442,7 @@ function gameLoop(now) {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     // Background
-    drawStars();
+    drawStars(ctx, stars, canvas.width, canvas.height);
 
     // Update & cull particles
     for (let i = particles.length - 1; i >= 0; i--) {

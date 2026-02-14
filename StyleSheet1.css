@@ -1,4 +1,5 @@
-﻿* {
+﻿
+* {
     margin: 0;
     padding: 0;
     box-sizing: border-box;
@@ -134,8 +135,6 @@ body {
     cursor: not-allowed;
 }
 
-/* ---------- Play Area / Canvas ---------- */
-
 #playArea {
     position: fixed;
     top: 0;
@@ -151,8 +150,6 @@ body {
 #gameCanvas {
     display: block;
 }
-
-/* ---------- Create Dust Button ---------- */
 
 #bottomBar {
     position: fixed;
@@ -212,8 +209,6 @@ body {
     color: #1a1a2e;
 }
 
-/* ---------- Auto-play Button ---------- */
-
 #autoPlayBtn {
     width: 80px;
     height: 80px;
@@ -235,4 +230,66 @@ body {
 #autoPlayBtn.active {
     background-color: rgba(224, 163, 92, 0.3);
     border-color: #e0a35c;
+}
+
+/* Responsive: Sidebar as top nav, upgrade bar below, for narrow screens */
+@media (max-width: 1050px) {
+    #sidebar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 70px;
+        flex-direction: row;
+        align-items: center;
+        justify-content: flex-start;
+        padding: 0 10px;
+        border-right: none;
+        border-bottom: 2px solid rgba(224, 163, 92, 0.3);
+        z-index: 20;
+        background-color: rgba(10, 10, 25, 0.95);
+        box-sizing: border-box;
+        overflow-x: auto;
+    }
+    #massDisplay {
+        font-size: 32px;
+        margin: 0 18px 0 0;
+    }
+    #massLabel {
+        font-size: 12px;
+        margin: 0 18px 0 0;
+        margin-bottom: 0;
+        margin-top: 0;
+        letter-spacing: 2px;
+        padding-right: 25px;
+    }
+    #statsList {
+        flex-direction: row;
+        gap: 18px;
+        width: auto;
+        margin-left: 10px;
+    }
+    .statRow {
+        flex-direction: column;
+        align-items: flex-start;
+        width: auto;
+    }
+    /* Upgrade bar moves below sidebar, horizontal */
+    #upgradeBar {
+        position: fixed;
+        top: 90px;
+        left: 0;
+        transform: none;
+        width: 100vw;
+        justify-content: center;
+        flex-direction: row;
+        gap: 16px;
+        z-index: 15;
+        background: none;
+    }
+
+    #createDust {
+        max-width: 500px;
+        width: 60vw;
+    }
 }
