@@ -15,7 +15,11 @@
             <div class="statRow"><span class="statLabel">Size</span><span class="statValue" id="sizeLevelDisplay">1</span></div>
             <div class="statRow"><span class="statLabel">Speed</span><span class="statValue" id="speedLevelDisplay">1</span></div>
             <div class="statRow"><span class="statLabel">Gravity</span><span class="statValue" id="gravityLevelDisplay">1.0</span></div>
-            <div class="statRow"><span class="statLabel">Meteors</span><span class="statValue" id="meteorInventoryDisplay">0 / 0</span></div>
+            <div class="statRow" style="position:relative;min-width:90px;">
+                <span class="statLabel">Meteors</span>
+                <span class="statValue" id="meteorInventoryDisplay" style="position:relative;z-index:2;">0 / 0</span>
+                <div id="meteorRechargeBar" style="position:absolute;left:0;bottom:0;height:100%;width:0%;background-color:rgba(224,163,92,0.25);z-index:1;transition:none;"></div>
+            </div>
         </div>
     </div>
 
@@ -36,6 +40,10 @@
             <button class="upgradeButton" id="meteorCapacityButton">Meteors</button>
             <p class="upgradeCost" id="meteorCapacityCostDisplay">10</p>
         </div>
+        <div class="upgradeBlock">
+            <button class="upgradeButton" id="meteorChargeButton">Charge</button>
+            <p class="upgradeCost" id="meteorChargeCostDisplay">10</p>
+        </div>
     </div>
 
     <div id="playArea">
@@ -44,7 +52,6 @@
 
     <div id="bottomBar">
         <div id="bottomBarInteractive">
-            <button id="meteorModeBtn" type="button">Meteor</button>
             <button id="createDust" type="button">
                 <span id="createDustText">Create</span>
                 <div id="cooldownBar"></div>

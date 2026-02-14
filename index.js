@@ -38,7 +38,7 @@ let speedLevel = 1;      // controls cooldown between clicks
 let meteorCapacityLevel = 0; // Meteor capacity upgrade level (0-20)
 const MAX_METEOR_CAPACITY_LEVEL = 20;
 let currentMeteors = 0; // Current meteor inventory
-let meteorRecharge = 1.5; // seconds per meteor recharge (can be tuned)
+let meteorRecharge = 2; // seconds per meteor recharge (can be tuned)
 let meteorCooldownEnd = 0; // timestamp for next meteor recharge
 
 let starMass = 100;    // accumulated mass – start at 100
@@ -116,30 +116,29 @@ class Meteor {
     }
 }
 
-let meteorSummonMode = false;
 
-const meteorModeBtn = document.getElementById("meteorModeBtn");
+
 const meteorCapacityBtn = document.getElementById("meteorCapacityButton");
 const meteorCapacityCostEl = document.getElementById("meteorCapacityCostDisplay");
 const meteorInventoryEl = document.getElementById("meteorInventoryDisplay");
+const meteorRechargeBar = document.getElementById("meteorRechargeBar");
+const meteorChargeBtn = document.getElementById("meteorChargeButton");
+const meteorChargeCostEl = document.getElementById("meteorChargeCostDisplay");
+// --- Meteor Charge Upgrade ---
+let meteorChargeLevel = 0; // 0-20
+const MAX_METEOR_CHARGE_LEVEL = 20;
 
-meteorModeBtn.addEventListener("click", () => {
-    meteorSummonMode = !meteorSummonMode;
-    meteorModeBtn.classList.toggle("active", meteorSummonMode);
-});
+
 
 canvas.addEventListener("mousedown", (e) => {
-    if (!meteorSummonMode) return;
-    if (currentMeteors < 1) {
-        flashButton(meteorModeBtn);
-        return;
+    if (currentMeteors > 0) {
+        const rect = canvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        meteors.push(new Meteor(x, y));
+        currentMeteors -= 1;
+        refreshMeteorInventory();
     }
-    const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    meteors.push(new Meteor(x, y));
-    currentMeteors -= 1;
-    refreshMeteorInventory();
 });
 
 const MAX_DUST_LEVEL = 20;
@@ -150,21 +149,15 @@ const MAX_PARTICLES = 300;
 
 const DUST_MASS_GRAVITY_SCALE = 0.01;
 
-// Effective values mapped from 20 upgrade levels to original ranges
 function getEffectiveDust() {
     return dustLevel;
 }
 function getEffectiveMass() {
     return (1 + (sizeLevel - 1) * (9 / 19)) * 0.1;
 }
-// Gravity scales linearly with planet mass: 1 at 0, 10 at MAX_STAR_MASS
 function getGravityLevel() {
     return 1 + (starMass / MAX_STAR_MASS) * 8;
 }
-
-
-// --- Cost function (exponential scaling) ---
-// Level 1 ≈ 100, level 19 ≈ 9000 (20 levels, cost at current level before upgrade)
 function getUpgradeCost(currentLevel) {
     return Math.floor(10 * Math.pow(1.28, currentLevel - 1));
 }
@@ -176,6 +169,9 @@ function refreshCosts() {
     speedCostEl.textContent = speedLevel >= MAX_SPEED_LEVEL ? "MAX" : getUpgradeCost(speedLevel);
     if (meteorCapacityCostEl) {
         meteorCapacityCostEl.textContent = meteorCapacityLevel >= MAX_METEOR_CAPACITY_LEVEL ? "MAX" : getUpgradeCost(meteorCapacityLevel + 1);
+    }
+    if (meteorChargeCostEl) {
+        meteorChargeCostEl.textContent = meteorChargeLevel >= MAX_METEOR_CHARGE_LEVEL ? "MAX" : getUpgradeCost(meteorChargeLevel + 1);
     }
 }
 
@@ -193,9 +189,11 @@ function refreshMeteorInventory() {
     if (meteorInventoryEl) {
         meteorInventoryEl.textContent = `${currentMeteors} / ${meteorCapacityLevel}`;
     }
-    if (meteorModeBtn) {
-        meteorModeBtn.disabled = meteorCapacityLevel === 0;
-        meteorModeBtn.classList.toggle("maxed", meteorCapacityLevel === 0);
+    // Reset recharge bar if not recharging
+    if (meteorRechargeBar) {
+        if (currentMeteors >= meteorCapacityLevel || meteorCapacityLevel === 0) {
+            meteorRechargeBar.style.width = "0%";
+        }
     }
 }
 
@@ -232,6 +230,19 @@ function updateMaxedButtons() {
     if (meteorCapacityBtn) {
         meteorCapacityBtn.classList.toggle("maxed", meteorCapacityLevel >= MAX_METEOR_CAPACITY_LEVEL);
     }
+    if (meteorChargeBtn) {
+        meteorChargeBtn.classList.toggle("maxed", meteorChargeLevel >= MAX_METEOR_CHARGE_LEVEL);
+    }
+// --- Meteor Charge Upgrade Button ---
+if (meteorChargeBtn) {
+    meteorChargeBtn.addEventListener("click", () => {
+        tryPurchase(meteorChargeBtn, meteorChargeLevel, MAX_METEOR_CHARGE_LEVEL,
+            () => getUpgradeCost(meteorChargeLevel + 1),
+            () => {
+                meteorChargeLevel += 1;
+            });
+    });
+}
 }
 // --- Meteor Capacity Upgrade ---
 if (meteorCapacityBtn) {
@@ -240,25 +251,48 @@ if (meteorCapacityBtn) {
             () => getUpgradeCost(meteorCapacityLevel + 1),
             () => {
                 meteorCapacityLevel += 1;
-                // On first upgrade, fill inventory
                 if (meteorCapacityLevel === 1) {
                     currentMeteors = 1;
                 } else {
-                    currentMeteors = Math.min(currentMeteors + 1, meteorCapacityLevel);
+                    currentMeteors = Math.min(currentMeteors, meteorCapacityLevel);
                 }
                 refreshMeteorInventory();
             });
     });
 }
 
-// --- Meteor Recharge Logic ---
+function getMeteorRechargeSeconds() {
+    return 2 - (meteorChargeLevel * (1.75 / 20));
+}
+
 function updateMeteorRecharge(now) {
     if (meteorCapacityLevel === 0) return;
-    if (currentMeteors >= meteorCapacityLevel) return;
+    if (currentMeteors >= meteorCapacityLevel) {
+        currentMeteors = meteorCapacityLevel;
+        // Stop recharging when at max
+        meteorCooldownEnd = 0;
+        if (meteorRechargeBar) meteorRechargeBar.style.width = "0%";
+        return;
+    }
+    // Only start charging if not already charging
+    if (meteorCooldownEnd === 0) {
+        meteorCooldownEnd = now + getMeteorRechargeSeconds() * 1000;
+    }
     if (now >= meteorCooldownEnd) {
         currentMeteors = Math.min(currentMeteors + 1, meteorCapacityLevel);
-        meteorCooldownEnd = now + meteorRecharge * 1000;
+        // If still not at max, start next charge; else, stop
+        if (currentMeteors < meteorCapacityLevel) {
+            meteorCooldownEnd = now + getMeteorRechargeSeconds() * 1000;
+        } else {
+            meteorCooldownEnd = 0;
+        }
         refreshMeteorInventory();
+    } else if (meteorRechargeBar) {
+        // Show recharge progress bar
+        const total = getMeteorRechargeSeconds() * 1000;
+        const elapsed = total - (meteorCooldownEnd - now);
+        const pct = Math.max(0, Math.min(1, elapsed / total)) * 100;
+        meteorRechargeBar.style.width = pct + "%";
     }
 }
 

@@ -3,21 +3,6 @@
     font-weight: bold;
     font-size: 16px;
 }
-#meteorModeBtn {
-    width: 80px;
-    height: 40px;
-    font-size: 18px;
-    margin-bottom: 6px;
-    border: 3px solid #e0a35c;
-    border-radius: 10px;
-    color: #e0a35c;
-    background: none;
-    cursor: pointer;
-    transition: background-color 0.15s, color 0.15s;
-}
-#meteorModeBtn.active {
-    background-color: rgba(224, 163, 92, 0.6);
-}
 
 * {
     margin: 0;
@@ -32,8 +17,6 @@ body {
     overflow: hidden;
     font-family: Arial, sans-serif;
 }
-
-/* ---------- Sidebar ---------- */
 
 #sidebar {
     position: fixed;
@@ -89,8 +72,6 @@ body {
     font-size: 16px;
 }
 
-/* ---------- Upgrade Bar ---------- */
-
 #upgradeBar {
     position: fixed;
     top: 20px;
@@ -141,7 +122,6 @@ body {
     content: "Cost: ";
 }
 
-/* Flash red when purchase fails */
 @keyframes flashRed {
     0%   { border-color: #e05555; box-shadow: 0 0 12px rgba(224, 85, 85, 0.5); }
     100% { border-color: #e0a35c; box-shadow: none; }
@@ -259,7 +239,6 @@ body {
     border-color: #e0a35c;
 }
 
-/* Responsive: Sidebar as top nav, upgrade bar below, for narrow screens */
 @media (max-width: 1050px) {
     #sidebar {
         position: fixed;
@@ -363,13 +342,19 @@ body {
         font-size: 14px;
         max-width: 100px;
     }
-     .statLabel, .statValue {
+    .statLabel, .statValue {
         font-size: 12px;
         max-width: 60px;
     }
-     .upgradeButton {
+    .upgradeButton {
         width: 3rem;
-        min-width: 60px;
         font-size: auto;
     }
+    #upgradeBar {
+        flex-wrap: wrap;
+        max-width: 90vw;
+        row-gap: 4px;
+        justify-content: center;
+    }
+
 }
