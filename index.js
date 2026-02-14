@@ -68,14 +68,14 @@ class Meteor {
         const dx = this.cx - this.x;
         const dy = this.cy - this.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
-        const speed = 4 + (Math.random() * 10) * (starMass / 1000); // Fast, straight line
+        const speed = 4 + (Math.random() * 10); // Fast, straight line
         this.vx = (dx / dist) * speed;
         this.vy = (dy / dist) * speed;
     }
 
     update(dt) {
-        this.x += this.vx * dt * 0.8;
-        this.y += this.vy * dt * 0.8;
+        this.x += this.vx * dt * (0.1 +starMass / MAX_STAR_MASS);
+        this.y += this.vy * dt * (0.1 + starMass / MAX_STAR_MASS);
         // Absorbed by planet
         const dx = (canvas.width / 2) - this.x;
         const dy = (canvas.height / 2) - this.y;
