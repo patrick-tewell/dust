@@ -1,4 +1,19 @@
-﻿
+﻿#meteorModeBtn {
+    width: 80px;
+    height: 40px;
+    font-size: 18px;
+    margin-bottom: 6px;
+    border: 3px solid #e0a35c;
+    border-radius: 10px;
+    color: #e0a35c;
+    background: none;
+    cursor: pointer;
+    transition: background-color 0.15s, color 0.15s;
+}
+#meteorModeBtn.active {
+    background-color: rgba(224, 163, 92, 0.6);
+}
+
 * {
     margin: 0;
     padding: 0;
@@ -159,8 +174,14 @@ body {
     transform: translateX(-50%);
     z-index: 10;
     display: flex;
-    align-items: center;
+    align-items: flex-end;
     gap: 12px;
+}
+
+#bottomBarInteractive {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
 }
 
 #createDust {

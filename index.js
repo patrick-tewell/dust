@@ -39,33 +39,111 @@ let starRadius = 12 + Math.sqrt(starMass) * 1.2;  // initial radius matching sta
 
 
 const particles = [];    // active dust particles
+const meteors = [];      // active meteor particles
 const collisionFlashes = []; // brief flash effects at collision points
 
-// --- Upgrade caps ---
+class Meteor {
+    constructor(x, y) {
+        this.x = x;
+        this.y = y;
+        this.mass = getEffectiveMass() * 2; // Meteors are heavier
+        this.radius = dustRadius(this.mass) * 1.2;
+        this.alive = true;
+        this.trail = [];
+        // Color: blue-white
+        this.colorR = 180 + Math.floor(Math.random() * 40);
+        this.colorG = 210 + Math.floor(Math.random() * 30);
+        this.colorB = 255;
+        this.color = `rgb(${this.colorR},${this.colorG},${this.colorB})`;
+        // Calculate velocity towards center
+        this.cx = canvas.width / 2;
+        this.cy = canvas.height / 2;
+        const dx = this.cx - this.x;
+        const dy = this.cy - this.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const speed = 7 + Math.random() * 2; // Fast, straight line
+        this.vx = (dx / dist) * speed;
+        this.vy = (dy / dist) * speed;
+    }
+
+    update(dt) {
+        this.x += this.vx * dt * 0.8;
+        this.y += this.vy * dt * 0.8;
+        // Absorbed by planet
+        const dx = (canvas.width / 2) - this.x;
+        const dy = (canvas.height / 2) - this.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < starRadius + this.radius) {
+            this.alive = false;
+            starMass = Math.min(starMass + this.mass, MAX_STAR_MASS);
+            starRadius = 12 + Math.sqrt(starMass) * 1.2;
+            refreshSidebar();
+            refreshCosts();
+            updateMaxedButtons();
+            return;
+        }
+        // Trail
+        this.trail.push({ x: this.x, y: this.y });
+        if (this.trail.length > 30) this.trail.shift();
+    }
+
+    draw(ctx) {
+        // Draw trail
+        const len = this.trail.length;
+        if (len > 1) {
+            for (let i = 0; i < len - 1; i++) {
+                const t = i / len;
+                const alpha = t * 0.5;
+                const r = this.radius * t * 0.7;
+                ctx.beginPath();
+                ctx.arc(this.trail[i].x, this.trail[i].y, Math.max(r, 0.5), 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(${this.colorR}, ${this.colorG}, ${this.colorB}, ${alpha})`;
+                ctx.fill();
+            }
+        }
+        // Draw meteor
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+        ctx.fillStyle = this.color;
+        ctx.fill();
+    }
+}
+
+let meteorSummonMode = false;
+const meteorModeBtn = document.getElementById("meteorModeBtn");
+meteorModeBtn.addEventListener("click", () => {
+    meteorSummonMode = !meteorSummonMode;
+    meteorModeBtn.classList.toggle("active", meteorSummonMode);
+});
+
+canvas.addEventListener("mousedown", (e) => {
+    if (!meteorSummonMode) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    meteors.push(new Meteor(x, y));
+});
+
 const MAX_DUST_LEVEL = 20;
 const MAX_SIZE_LEVEL = 20;
 const MAX_SPEED_LEVEL = 20;
 const MAX_STAR_MASS = 10000;
-const MAX_PARTICLES = 300;   // cap on simultaneous dust particles
+const MAX_PARTICLES = 300;
+
+const DUST_MASS_GRAVITY_SCALE = 0.01;
 
 // Effective values mapped from 20 upgrade levels to original ranges
-// Dust per click: 1 at lvl 1, 10 at lvl 20
 function getEffectiveDust() {
     return dustLevel;
 }
-// Dust mass: 1 at lvl 1, 10 at lvl 20
 function getEffectiveMass() {
-    return (1 + (sizeLevel - 1) * (9 / 19)) * 0.1; // base mass is 0.1, scales up to 1.0
+    return (1 + (sizeLevel - 1) * (9 / 19)) * 0.1;
 }
-
 // Gravity scales linearly with planet mass: 1 at 0, 10 at MAX_STAR_MASS
 function getGravityLevel() {
     return 1 + (starMass / MAX_STAR_MASS) * 8;
 }
 
-// How much a particle's own mass amplifies gravity's pull on it
-// and slows its orbital speed (higher = bigger effect)
-const DUST_MASS_GRAVITY_SCALE = 0.01;
 
 // --- Cost function (exponential scaling) ---
 // Level 1 ≈ 100, level 19 ≈ 9000 (20 levels, cost at current level before upgrade)
@@ -267,6 +345,7 @@ class Dust {
     }
 }
 
+
 // --- Create dust on click (with cooldown) ---
 function spawnDust(silent) {
     if (onCooldown) return;
@@ -451,6 +530,13 @@ function gameLoop(now) {
             particles.splice(i, 1);
         }
     }
+    // Update & cull meteors
+    for (let i = meteors.length - 1; i >= 0; i--) {
+        meteors[i].update(dt);
+        if (!meteors[i].alive) {
+            meteors.splice(i, 1);
+        }
+    }
 
     // Dust-to-dust collisions
     for (let i = 0; i < particles.length; i++) {
@@ -468,7 +554,6 @@ function gameLoop(now) {
                 const flashX = (a.x + b.x) / 2;
                 const flashY = (a.y + b.y) / 2;
                 collisionFlashes.push({ x: flashX, y: flashY, life: 1.0, radius: minDist * 1.5 });
-
                 // Merge b into a (conservation of momentum for direction,
                 // but preserve at least the faster particle's speed)
                 const totalMass = a.mass + b.mass;
@@ -487,8 +572,30 @@ function gameLoop(now) {
                 }
                 a.mass = totalMass;
                 a.radius = dustRadius(a.mass);
-
                 b.alive = false;
+            }
+        }
+    }
+    // Meteor-to-dust collisions (meteors absorb dust)
+    for (let i = meteors.length - 1; i >= 0; i--) {
+        const m = meteors[i];
+        if (!m.alive) continue;
+        for (let j = particles.length - 1; j >= 0; j--) {
+            const d = particles[j];
+            if (!d.alive) continue;
+            const dx = m.x - d.x;
+            const dy = m.y - d.y;
+            const distSq = dx * dx + dy * dy;
+            const minDist = m.radius + d.radius;
+            if (distSq < minDist * minDist) {
+                // Flash at collision
+                const flashX = (m.x + d.x) / 2;
+                const flashY = (m.y + d.y) / 2;
+                collisionFlashes.push({ x: flashX, y: flashY, life: 1.0, radius: minDist * 1.5 });
+                // Meteor absorbs dust
+                m.mass += d.mass;
+                m.radius = dustRadius(m.mass) * 1.2;
+                d.alive = false;
             }
         }
     }
@@ -501,6 +608,10 @@ function gameLoop(now) {
     // Draw particles
     for (const p of particles) {
         p.draw(ctx);
+    }
+    // Draw meteors
+    for (const m of meteors) {
+        m.draw(ctx);
     }
 
     // Draw and decay collision flashes
