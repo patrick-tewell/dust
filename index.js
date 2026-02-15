@@ -64,7 +64,6 @@ const massDisplayEl = document.getElementById("massDisplay");
 const dustLevelEl = document.getElementById("dustLevelDisplay");
 const sizeLevelEl = document.getElementById("sizeLevelDisplay");
 const speedLevelEl = document.getElementById("speedLevelDisplay");
-const gravityLevelEl = document.getElementById("gravityLevelDisplay");
 const dustCostEl = document.getElementById("dustCostDisplay");
 const sizeCostEl = document.getElementById("sizeCostDisplay");
 const speedCostEl = document.getElementById("speedCostDisplay");
@@ -219,7 +218,6 @@ function refreshSidebar() {
     dustLevelEl.textContent = dustLevel;
     sizeLevelEl.textContent = sizeLevel;
     speedLevelEl.textContent = speedLevel;
-    gravityLevelEl.textContent = getGravityLevel().toFixed(1);
     refreshMeteorInventory();
 }
 
