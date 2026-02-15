@@ -1,3 +1,43 @@
+// --- Upgrade Bar Show/Hide Logic ---
+const upgradeBar = document.getElementById("upgradeBar");
+const shopBtn = document.getElementById("shop");
+const upgradeButtons = Array.from(document.getElementsByClassName("upgradeButton"));
+let upgradeBarTimeout = null;
+
+function showUpgradeBar() {
+    upgradeBar.classList.add("visible");
+    clearTimeout(upgradeBarTimeout);
+    upgradeBarTimeout = setTimeout(hideUpgradeBar, 10000);
+}
+
+function hideUpgradeBar() {
+    upgradeBar.classList.remove("visible");
+    clearTimeout(upgradeBarTimeout);
+}
+
+// Hide initially
+hideUpgradeBar();
+
+// Show on shop click
+shopBtn.addEventListener("click", (e) => {
+    showUpgradeBar();
+    e.stopPropagation();
+});
+
+// Clicking an upgrade button keeps bar open
+upgradeButtons.forEach(btn => {
+    btn.addEventListener("click", (e) => {
+        showUpgradeBar();
+        e.stopPropagation();
+    });
+});
+
+// Hide if clicking anywhere else
+document.addEventListener("click", (e) => {
+    if (!upgradeBar.contains(e.target) && e.target !== shopBtn) {
+        hideUpgradeBar();
+    }
+});
 // ============================================================
 //  Idle Planet – Canvas-based game
 // ============================================================
@@ -29,25 +69,23 @@ const dustCostEl = document.getElementById("dustCostDisplay");
 const sizeCostEl = document.getElementById("sizeCostDisplay");
 const speedCostEl = document.getElementById("speedCostDisplay");
 
-
-// --- Game state ---
 let dustLevel = 1;
 let sizeLevel = 1;
-let speedLevel = 1;      // controls cooldown between clicks
+let speedLevel = 1;
 
-let meteorCapacityLevel = 0; // Meteor capacity upgrade level (0-20)
+let meteorCapacityLevel = 0;
 const MAX_METEOR_CAPACITY_LEVEL = 20;
-let currentMeteors = 0; // Current meteor inventory
-let meteorRecharge = 2; // seconds per meteor recharge (can be tuned)
-let meteorCooldownEnd = 0; // timestamp for next meteor recharge
+let currentMeteors = 0;
+let meteorRecharge = 2;
+let meteorCooldownEnd = 0;
 
-let starMass = 100;    // accumulated mass – start at 100
-let starRadius = 12 + Math.sqrt(starMass) * 1.2;  // initial radius matching starting mass
+let starMass = 100;
+let starRadius = 12 + Math.sqrt(starMass) * 1.2;
 
 
-const particles = [];    // active dust particles
-const meteors = [];      // active meteor particles
-const collisionFlashes = []; // brief flash effects at collision points
+const particles = [];
+const meteors = [];
+const collisionFlashes = [];
 
 class Meteor {
     constructor(x, y) {
