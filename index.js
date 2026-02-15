@@ -1,4 +1,3 @@
-// --- Upgrade Bar Show/Hide Logic ---
 const upgradeBar = document.getElementById("upgradeBar");
 const shopBtn = document.getElementById("shop");
 const upgradeButtons = Array.from(document.getElementsByClassName("upgradeButton"));
@@ -38,11 +37,7 @@ document.addEventListener("click", (e) => {
         hideUpgradeBar();
     }
 });
-// ============================================================
-//  Idle Planet – Canvas-based game
-// ============================================================
 
-// --- Canvas setup ---
 const canvas = document.getElementById("gameCanvas");
 const ctx = canvas.getContext("2d");
 
@@ -53,7 +48,6 @@ function resizeCanvas() {
 window.addEventListener("resize", resizeCanvas);
 resizeCanvas();
 
-// --- DOM handles ---
 const createDustBtn = document.getElementById("createDust");
 const dustPerClickBtn = document.getElementById("dustPerClickButton");
 const dustSizeBtn = document.getElementById("dustSizeButton");
