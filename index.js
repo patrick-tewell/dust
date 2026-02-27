@@ -62,19 +62,27 @@ const dustCostEl = document.getElementById("dustCostDisplay");
 const sizeCostEl = document.getElementById("sizeCostDisplay");
 const speedCostEl = document.getElementById("speedCostDisplay");
 
-let dustLevel = 1;
-let sizeLevel = 1;
-let speedLevel = 1;
-
-let meteorCapacityLevel = 0;
-const MAX_METEOR_CAPACITY_LEVEL = 20;
-let currentMeteors = 0;
-let meteorRecharge = 2;
-let meteorCooldownEnd = 0;
-
 let starMass = 100;
 let starRadius = 12 + Math.sqrt(starMass) * 1.2;
 
+let dustLevel = 20;
+let sizeLevel = 20;
+let speedLevel = 20;
+let meteorCapacityLevel = 0;
+let meteorChargeLevel = 0;
+
+const MAX_DUST_LEVEL = 20;
+const MAX_SIZE_LEVEL = 20;
+const MAX_SPEED_LEVEL = 20;
+const MAX_STAR_MASS = 10000;
+const MAX_PARTICLES = 150;
+const DUST_MASS_GRAVITY_SCALE = 0.01;
+const MAX_METEOR_CAPACITY_LEVEL = 20;
+const MAX_METEOR_CHARGE_LEVEL = 20;
+
+let currentMeteors = 0;
+let meteorRecharge = 2;
+let meteorCooldownEnd = 0;
 
 const particles = [];
 const meteors = [];
@@ -147,18 +155,12 @@ class Meteor {
     }
 }
 
-
-
 const meteorCapacityBtn = document.getElementById("meteorCapacityButton");
 const meteorCapacityCostEl = document.getElementById("meteorCapacityCostDisplay");
 const meteorInventoryEl = document.getElementById("meteorInventoryDisplay");
 const meteorRechargeBar = document.getElementById("meteorRechargeBar");
 const meteorChargeBtn = document.getElementById("meteorChargeButton");
 const meteorChargeCostEl = document.getElementById("meteorChargeCostDisplay");
-// --- Meteor Charge Upgrade ---
-let meteorChargeLevel = 0; // 0-20
-const MAX_METEOR_CHARGE_LEVEL = 20;
-
 
 
 canvas.addEventListener("mousedown", (e) => {
@@ -172,14 +174,6 @@ canvas.addEventListener("mousedown", (e) => {
     }
 });
 
-const MAX_DUST_LEVEL = 20;
-const MAX_SIZE_LEVEL = 20;
-const MAX_SPEED_LEVEL = 20;
-const MAX_STAR_MASS = 10000;
-const MAX_PARTICLES = 300;
-
-const DUST_MASS_GRAVITY_SCALE = 0.01;
-
 function getEffectiveDust() {
     return dustLevel;
 }
@@ -192,7 +186,6 @@ function getGravityLevel() {
 function getUpgradeCost(currentLevel) {
     return Math.floor(10 * Math.pow(1.28, currentLevel - 1));
 }
-
 
 function refreshCosts() {
     dustCostEl.textContent = dustLevel >= MAX_DUST_LEVEL ? "MAX" : getUpgradeCost(dustLevel);
@@ -227,7 +220,6 @@ function refreshMeteorInventory() {
     }
 }
 
-// Flash a button red when purchase is denied
 function flashButton(btn) {
     btn.classList.remove("flash-red");
     // Force reflow so animation restarts
@@ -236,7 +228,6 @@ function flashButton(btn) {
     btn.addEventListener("animationend", () => btn.classList.remove("flash-red"), { once: true });
 }
 
-// Generic purchase helper
 function tryPurchase(btn, currentLevel, maxLevel, costFn, onSuccess) {
     if (currentLevel >= maxLevel) return;
     const cost = costFn();
@@ -672,63 +663,143 @@ function gameLoop(now) {
     updateMeteorRecharge(now);
 
     // Dust-to-dust collisions
+    // --- Spatial grid collision optimization ---
+    const gridSize = 60; // Adjust for performance/accuracy
+    const gridCols = Math.ceil(canvas.width / gridSize);
+    const gridRows = Math.ceil(canvas.height / gridSize);
+    // Build grid
+    const dustGrid = Array.from({ length: gridCols * gridRows }, () => []);
     for (let i = 0; i < particles.length; i++) {
-        const a = particles[i];
-        if (!a.alive) continue;
-        for (let j = i + 1; j < particles.length; j++) {
-            const b = particles[j];
-            if (!b.alive) continue;
-            const dx = a.x - b.x;
-            const dy = a.y - b.y;
-            const distSq = dx * dx + dy * dy;
-            const minDist = a.radius + b.radius;
-            if (distSq < minDist * minDist) {
-                // Record collision flash at midpoint
-                const flashX = (a.x + b.x) / 2;
-                const flashY = (a.y + b.y) / 2;
-                collisionFlashes.push({ x: flashX, y: flashY, life: 1.0, radius: minDist * 1.5 });
-                // Merge b into a (conservation of momentum for direction,
-                // but preserve at least the faster particle's speed)
-                const totalMass = a.mass + b.mass;
-                const mvx = (a.vx * a.mass + b.vx * b.mass) / totalMass;
-                const mvy = (a.vy * a.mass + b.vy * b.mass) / totalMass;
-                const mergedSpeed = Math.sqrt(mvx * mvx + mvy * mvy);
-                const speedA = Math.sqrt(a.vx * a.vx + a.vy * a.vy);
-                const speedB = Math.sqrt(b.vx * b.vx + b.vy * b.vy);
-                const keepSpeed = Math.max(mergedSpeed, Math.max(speedA, speedB) * 0.85);
-                if (mergedSpeed > 0.001) {
-                    a.vx = (mvx / mergedSpeed) * keepSpeed;
-                    a.vy = (mvy / mergedSpeed) * keepSpeed;
-                } else {
-                    a.vx = mvx;
-                    a.vy = mvy;
+        const p = particles[i];
+        if (!p.alive) continue;
+        const col = Math.floor(p.x / gridSize);
+        const row = Math.floor(p.y / gridSize);
+        if (col >= 0 && col < gridCols && row >= 0 && row < gridRows) {
+            dustGrid[row * gridCols + col].push(i);
+        }
+    }
+    // Check collisions only in neighboring cells
+    for (let col = 0; col < gridCols; col++) {
+        for (let row = 0; row < gridRows; row++) {
+            const cellIdx = row * gridCols + col;
+            const indices = dustGrid[cellIdx];
+            // Check within cell
+            for (let aIdx = 0; aIdx < indices.length; aIdx++) {
+                const a = particles[indices[aIdx]];
+                if (!a.alive) continue;
+                // Check against other particles in cell
+                for (let bIdx = aIdx + 1; bIdx < indices.length; bIdx++) {
+                    const b = particles[indices[bIdx]];
+                    if (!b.alive) continue;
+                    const dx = a.x - b.x;
+                    const dy = a.y - b.y;
+                    const distSq = dx * dx + dy * dy;
+                    const minDist = a.radius + b.radius;
+                    if (distSq < minDist * minDist) {
+                        // Record collision flash at midpoint
+                        const flashX = (a.x + b.x) / 2;
+                        const flashY = (a.y + b.y) / 2;
+                        collisionFlashes.push({ x: flashX, y: flashY, life: 1.0, radius: minDist * 1.5 });
+                        // Merge b into a (conservation of momentum for direction,
+                        // but preserve at least the faster particle's speed)
+                        const totalMass = a.mass + b.mass;
+                        const mvx = (a.vx * a.mass + b.vx * b.mass) / totalMass;
+                        const mvy = (a.vy * a.mass + b.vy * b.mass) / totalMass;
+                        const mergedSpeed = Math.sqrt(mvx * mvx + mvy * mvy);
+                        const speedA = Math.sqrt(a.vx * a.vx + a.vy * a.vy);
+                        const speedB = Math.sqrt(b.vx * b.vx + b.vy * b.vy);
+                        const keepSpeed = Math.max(mergedSpeed, Math.max(speedA, speedB) * 0.85);
+                        if (mergedSpeed > 0.001) {
+                            a.vx = (mvx / mergedSpeed) * keepSpeed;
+                            a.vy = (mvy / mergedSpeed) * keepSpeed;
+                        } else {
+                            a.vx = mvx;
+                            a.vy = mvy;
+                        }
+                        a.mass = totalMass;
+                        a.radius = dustRadius(a.mass);
+                        b.alive = false;
+                    }
                 }
-                a.mass = totalMass;
-                a.radius = dustRadius(a.mass);
-                b.alive = false;
+                // Check against neighboring cells
+                for (let dCol = -1; dCol <= 1; dCol++) {
+                    for (let dRow = -1; dRow <= 1; dRow++) {
+                        if (dCol === 0 && dRow === 0) continue;
+                        const nCol = col + dCol;
+                        const nRow = row + dRow;
+                        if (nCol < 0 || nCol >= gridCols || nRow < 0 || nRow >= gridRows) continue;
+                        const neighborIdx = nRow * gridCols + nCol;
+                        const neighbor = dustGrid[neighborIdx];
+                        for (let bIdx = 0; bIdx < neighbor.length; bIdx++) {
+                            const b = particles[neighbor[bIdx]];
+                            if (!b.alive) continue;
+                            const dx = a.x - b.x;
+                            const dy = a.y - b.y;
+                            const distSq = dx * dx + dy * dy;
+                            const minDist = a.radius + b.radius;
+                            if (distSq < minDist * minDist) {
+                                // Record collision flash at midpoint
+                                const flashX = (a.x + b.x) / 2;
+                                const flashY = (a.y + b.y) / 2;
+                                collisionFlashes.push({ x: flashX, y: flashY, life: 1.0, radius: minDist * 1.5 });
+                                // Merge b into a (conservation of momentum for direction,
+                                // but preserve at least the faster particle's speed)
+                                const totalMass = a.mass + b.mass;
+                                const mvx = (a.vx * a.mass + b.vx * b.mass) / totalMass;
+                                const mvy = (a.vy * a.mass + b.vy * b.mass) / totalMass;
+                                const mergedSpeed = Math.sqrt(mvx * mvx + mvy * mvy);
+                                const speedA = Math.sqrt(a.vx * a.vx + a.vy * a.vy);
+                                const speedB = Math.sqrt(b.vx * b.vx + b.vy * b.vy);
+                                const keepSpeed = Math.max(mergedSpeed, Math.max(speedA, speedB) * 0.85);
+                                if (mergedSpeed > 0.001) {
+                                    a.vx = (mvx / mergedSpeed) * keepSpeed;
+                                    a.vy = (mvy / mergedSpeed) * keepSpeed;
+                                } else {
+                                    a.vx = mvx;
+                                    a.vy = mvy;
+                                }
+                                a.mass = totalMass;
+                                a.radius = dustRadius(a.mass);
+                                b.alive = false;
+                            }
+                        }
+                    }
+                }
             }
         }
     }
     // Meteor-to-dust collisions (meteors absorb dust)
-    for (let i = meteors.length - 1; i >= 0; i--) {
+    // --- Meteor-to-dust collisions using grid ---
+    for (let i = 0; i < meteors.length; i++) {
         const m = meteors[i];
         if (!m.alive) continue;
-        for (let j = particles.length - 1; j >= 0; j--) {
-            const d = particles[j];
-            if (!d.alive) continue;
-            const dx = m.x - d.x;
-            const dy = m.y - d.y;
-            const distSq = dx * dx + dy * dy;
-            const minDist = m.radius + d.radius;
-            if (distSq < minDist * minDist) {
-                // Flash at collision
-                const flashX = (m.x + d.x) / 2;
-                const flashY = (m.y + d.y) / 2;
-                collisionFlashes.push({ x: flashX, y: flashY, life: 1.0, radius: minDist * 1.5 });
-                // Meteor absorbs dust
-                m.mass += d.mass;
-                m.radius = dustRadius(m.mass) * 1.2;
-                d.alive = false;
+        const col = Math.floor(m.x / gridSize);
+        const row = Math.floor(m.y / gridSize);
+        for (let dCol = -1; dCol <= 1; dCol++) {
+            for (let dRow = -1; dRow <= 1; dRow++) {
+                const nCol = col + dCol;
+                const nRow = row + dRow;
+                if (nCol < 0 || nCol >= gridCols || nRow < 0 || nRow >= gridRows) continue;
+                const neighborIdx = nRow * gridCols + nCol;
+                const neighbor = dustGrid[neighborIdx];
+                for (let bIdx = 0; bIdx < neighbor.length; bIdx++) {
+                    const d = particles[neighbor[bIdx]];
+                    if (!d.alive) continue;
+                    const dx = m.x - d.x;
+                    const dy = m.y - d.y;
+                    const distSq = dx * dx + dy * dy;
+                    const minDist = m.radius + d.radius;
+                    if (distSq < minDist * minDist) {
+                        // Flash at collision
+                        const flashX = (m.x + d.x) / 2;
+                        const flashY = (m.y + d.y) / 2;
+                        collisionFlashes.push({ x: flashX, y: flashY, life: 1.0, radius: minDist * 1.5 });
+                        // Meteor absorbs dust
+                        m.mass += d.mass;
+                        m.radius = dustRadius(m.mass) * 1.2;
+                        d.alive = false;
+                    }
+                }
             }
         }
     }
