@@ -1,153 +1,99 @@
-const upgradeBar = document.getElementById("upgradeBar");
-const shopBtn = document.getElementById("shop");
-const upgradeButtons = Array.from(document.getElementsByClassName("upgradeButton"));
-let upgradeBarTimeout = null;
+// --- Debugging ---
+const STARTING_STAR_MASS = 100;
+const STARTING_DUST_LEVEL = 20;
+const STARTING_SIZE_LEVEL = 20;
+const STARTING_SPEED_LEVEL = 20;
 
-function showUpgradeBar() {
-    upgradeBar.classList.add("visible");
-    clearTimeout(upgradeBarTimeout);
-    upgradeBarTimeout = setTimeout(hideUpgradeBar, 10000);
-}
-
-function hideUpgradeBar() {
-    upgradeBar.classList.remove("visible");
-    clearTimeout(upgradeBarTimeout);
-}
-
-// Hide initially
-hideUpgradeBar();
-
-// Show on shop click
-shopBtn.addEventListener("click", (e) => {
-    showUpgradeBar();
-    e.stopPropagation();
-});
-
-// Clicking an upgrade button keeps bar open
-upgradeButtons.forEach(btn => {
-    btn.addEventListener("click", (e) => {
-        showUpgradeBar();
-        e.stopPropagation();
-    });
-});
-
-// Hide if clicking anywhere else
-document.addEventListener("click", (e) => {
-    if (!upgradeBar.contains(e.target) && e.target !== shopBtn) {
-        hideUpgradeBar();
-    }
-});
-
-const canvas = document.getElementById("gameCanvas");
-const ctx = canvas.getContext("2d");
-
-function resizeCanvas() {
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
-}
-window.addEventListener("resize", resizeCanvas);
-resizeCanvas();
-
-const createDustBtn = document.getElementById("createDust");
-const dustPerClickBtn = document.getElementById("dustPerClickButton");
-const dustSizeBtn = document.getElementById("dustSizeButton");
-const speedBtn = document.getElementById("speedButton");
-const cooldownBar = document.getElementById("cooldownBar");
-
-const massDisplayEl = document.getElementById("massDisplay");
-const dustLevelEl = document.getElementById("dustLevelDisplay");
-const sizeLevelEl = document.getElementById("sizeLevelDisplay");
-const speedLevelEl = document.getElementById("speedLevelDisplay");
-const dustCostEl = document.getElementById("dustCostDisplay");
-const sizeCostEl = document.getElementById("sizeCostDisplay");
-const speedCostEl = document.getElementById("speedCostDisplay");
-
-let starMass = 100;
-let starRadius = 12 + Math.sqrt(starMass) * 1.2;
-
-let dustLevel = 20;
-let sizeLevel = 20;
-let speedLevel = 20;
-let meteorCapacityLevel = 0;
-let meteorChargeLevel = 0;
-
+// --- Constants ---
+const MAX_STAR_MASS = 10000;
 const MAX_DUST_LEVEL = 20;
 const MAX_SIZE_LEVEL = 20;
 const MAX_SPEED_LEVEL = 20;
-const MAX_STAR_MASS = 10000;
 const MAX_PARTICLES = 150;
 const DUST_MASS_GRAVITY_SCALE = 0.01;
 const MAX_METEOR_CAPACITY_LEVEL = 20;
 const MAX_METEOR_CHARGE_LEVEL = 20;
+const VIRTUAL_STAR_SIZE = 8000;
+const STAR_DEADZONE_MULT = 0.75;
 
-let currentMeteors = 0;
-let meteorRecharge = 2;
-let meteorCooldownEnd = 0;
+// --- Shared Utility ---
+function dustRadius(mass) {
+    return 2 + mass * 0.3;
+}
 
-const particles = [];
-const meteors = [];
-const collisionFlashes = [];
-
-class Meteor {
-    constructor(x, y) {
-        this.x = x;
-        this.y = y;
-        this.mass = getEffectiveMass() * 20; // Meteors are heavier
-        this.radius = dustRadius(this.mass) * 1.2;
-        this.alive = true;
-        this.trail = [];
-        // Color: blue-white
-        this.colorR = 180 + Math.floor(Math.random() * 40);
-        this.colorG = 210 + Math.floor(Math.random() * 30);
-        this.colorB = 255;
-        this.color = `rgb(${this.colorR},${this.colorG},${this.colorB})`;
-        // Calculate velocity towards center
-        this.cx = canvas.width / 2;
-        this.cy = canvas.height / 2;
-        const dx = this.cx - this.x;
-        const dy = this.cy - this.y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        const speed = 4 + (Math.random() * 10); // Fast, straight line
-        this.vx = (dx / dist) * speed;
-        this.vy = (dy / dist) * speed;
+// --- Game State ---
+class GameState {
+    constructor() {
+        this.starMass = STARTING_STAR_MASS;
+        this.starRadius = 12 + Math.sqrt(this.starMass) * 1.2;
+        
+        this.dustLevel = STARTING_DUST_LEVEL;
+        this.sizeLevel = STARTING_SIZE_LEVEL;
+        this.speedLevel = STARTING_SPEED_LEVEL;
+        
+        this.meteorCapacityLevel = 0;
+        this.meteorChargeLevel = 0;
+        this.currentMeteors = 0;
+        
+        this.meteorCooldownEnd = 0;
+        this.cooldownEnd = 0;
+        this.cooldownDuration = 0;
+        this.onCooldown = false;
+        this.autoPlaying = false;
     }
 
-    update(dt) {
-        this.x += this.vx * dt * (0.1 +starMass / MAX_STAR_MASS);
-        this.y += this.vy * dt * (0.1 + starMass / MAX_STAR_MASS);
-        // Absorbed by planet
-        const dx = (canvas.width / 2) - this.x;
-        const dy = (canvas.height / 2) - this.y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist < starRadius + this.radius) {
-            this.alive = false;
-            starMass = Math.min(starMass + this.mass, MAX_STAR_MASS);
-            starRadius = 12 + Math.sqrt(starMass) * 1.2;
-            refreshSidebar();
-            refreshCosts();
-            updateMaxedButtons();
-            return;
-        }
-        // Trail
+    getEffectiveDust() { return this.dustLevel; }
+    getEffectiveMass() { return (1 + (this.sizeLevel - 1) * (9 / 19)) * 0.1; }
+    getGravityLevel() { return 1 + (this.starMass / MAX_STAR_MASS) * 8; }
+    getUpgradeCost(currentLevel) { return Math.floor(10 * Math.pow(1.28, currentLevel - 1)); }
+    getMeteorRechargeSeconds() { return 2 - (this.meteorChargeLevel * (1.75 / 20)); }
+    getCooldownMs() { return (1.25 - (this.speedLevel - 1) * (1.0 / 19)) * 1000; }
+
+    addStarMass(mass) {
+        this.starMass = Math.min(this.starMass + mass, MAX_STAR_MASS);
+        this.starRadius = 12 + Math.sqrt(this.starMass) * 1.2;
+    }
+}
+
+// --- Base Entity ---
+class OrbitalEntity {
+    constructor(x, y, mass) {
+        this.x = x;
+        this.y = y;
+        this.mass = mass;
+        this.radius = dustRadius(mass);
+        this.alive = true;
+        this.trail = [];
+        this.vx = 0;
+        this.vy = 0;
+        // Defaults for drawing; overridden by subclasses
+        this.colorR = 255; this.colorG = 255; this.colorB = 255;
+        this.color = `rgb(255,255,255)`;
+        this.trailAlphaMult = 0.5;
+        this.trailRadiusMult = 0.7;
+        this.maxTrail = 30;
+    }
+
+    updateTrail() {
         this.trail.push({ x: this.x, y: this.y });
-        if (this.trail.length > 30) this.trail.shift();
+        if (this.trail.length > this.maxTrail) {
+            this.trail.splice(0, this.trail.length - this.maxTrail);
+        }
     }
 
     draw(ctx) {
-        // Draw trail
         const len = this.trail.length;
         if (len > 1) {
             for (let i = 0; i < len - 1; i++) {
                 const t = i / len;
-                const alpha = t * 0.5;
-                const r = this.radius * t * 0.7;
+                const alpha = t * this.trailAlphaMult;
+                const r = this.radius * t * this.trailRadiusMult;
                 ctx.beginPath();
                 ctx.arc(this.trail[i].x, this.trail[i].y, Math.max(r, 0.5), 0, Math.PI * 2);
                 ctx.fillStyle = `rgba(${this.colorR}, ${this.colorG}, ${this.colorB}, ${alpha})`;
                 ctx.fill();
             }
         }
-        // Draw meteor
         ctx.beginPath();
         ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
         ctx.fillStyle = this.color;
@@ -155,278 +101,49 @@ class Meteor {
     }
 }
 
-const meteorCapacityBtn = document.getElementById("meteorCapacityButton");
-const meteorCapacityCostEl = document.getElementById("meteorCapacityCostDisplay");
-const meteorInventoryEl = document.getElementById("meteorInventoryDisplay");
-const meteorRechargeBar = document.getElementById("meteorRechargeBar");
-const meteorChargeBtn = document.getElementById("meteorChargeButton");
-const meteorChargeCostEl = document.getElementById("meteorChargeCostDisplay");
-
-
-canvas.addEventListener("mousedown", (e) => {
-    if (currentMeteors > 0) {
-        const rect = canvas.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
-        meteors.push(new Meteor(x, y));
-        currentMeteors -= 1;
-        refreshMeteorInventory();
-    }
-});
-
-function getEffectiveDust() {
-    return dustLevel;
-}
-function getEffectiveMass() {
-    return (1 + (sizeLevel - 1) * (9 / 19)) * 0.1;
-}
-function getGravityLevel() {
-    return 1 + (starMass / MAX_STAR_MASS) * 8;
-}
-function getUpgradeCost(currentLevel) {
-    return Math.floor(10 * Math.pow(1.28, currentLevel - 1));
-}
-
-function refreshCosts() {
-    dustCostEl.textContent = dustLevel >= MAX_DUST_LEVEL ? "MAX" : getUpgradeCost(dustLevel);
-    sizeCostEl.textContent = sizeLevel >= MAX_SIZE_LEVEL ? "MAX" : getUpgradeCost(sizeLevel);
-    speedCostEl.textContent = speedLevel >= MAX_SPEED_LEVEL ? "MAX" : getUpgradeCost(speedLevel);
-    if (meteorCapacityCostEl) {
-        meteorCapacityCostEl.textContent = meteorCapacityLevel >= MAX_METEOR_CAPACITY_LEVEL ? "MAX" : getUpgradeCost(meteorCapacityLevel + 1);
-    }
-    if (meteorChargeCostEl) {
-        meteorChargeCostEl.textContent = meteorChargeLevel >= MAX_METEOR_CHARGE_LEVEL ? "MAX" : getUpgradeCost(meteorChargeLevel + 1);
-    }
-}
-
-
-function refreshSidebar() {
-    massDisplayEl.textContent = Math.floor(starMass);
-    dustLevelEl.textContent = dustLevel;
-    sizeLevelEl.textContent = sizeLevel;
-    speedLevelEl.textContent = speedLevel;
-    refreshMeteorInventory();
-}
-
-function refreshMeteorInventory() {
-    if (meteorInventoryEl) {
-        meteorInventoryEl.textContent = `${currentMeteors} / ${meteorCapacityLevel}`;
-    }
-    // Reset recharge bar if not recharging
-    if (meteorRechargeBar) {
-        if (currentMeteors >= meteorCapacityLevel || meteorCapacityLevel === 0) {
-            meteorRechargeBar.style.width = "0%";
-        }
-    }
-}
-
-function flashButton(btn) {
-    btn.classList.remove("flash-red");
-    // Force reflow so animation restarts
-    void btn.offsetWidth;
-    btn.classList.add("flash-red");
-    btn.addEventListener("animationend", () => btn.classList.remove("flash-red"), { once: true });
-}
-
-function tryPurchase(btn, currentLevel, maxLevel, costFn, onSuccess) {
-    if (currentLevel >= maxLevel) return;
-    const cost = costFn();
-    if (starMass < cost) {
-        flashButton(btn);
-        return;
-    }
-    starMass -= cost;
-    starRadius = 12 + Math.sqrt(starMass) * 1.2;
-    onSuccess();
-    refreshSidebar();
-    refreshCosts();
-    updateMaxedButtons();
-}
-
-
-function updateMaxedButtons() {
-    dustPerClickBtn.classList.toggle("maxed", dustLevel >= MAX_DUST_LEVEL);
-    dustSizeBtn.classList.toggle("maxed", sizeLevel >= MAX_SIZE_LEVEL);
-    speedBtn.classList.toggle("maxed", speedLevel >= MAX_SPEED_LEVEL);
-    if (meteorCapacityBtn) {
-        meteorCapacityBtn.classList.toggle("maxed", meteorCapacityLevel >= MAX_METEOR_CAPACITY_LEVEL);
-    }
-    if (meteorChargeBtn) {
-        meteorChargeBtn.classList.toggle("maxed", meteorChargeLevel >= MAX_METEOR_CHARGE_LEVEL);
-    }
-// --- Meteor Charge Upgrade Button ---
-if (meteorChargeBtn) {
-    meteorChargeBtn.addEventListener("click", () => {
-        tryPurchase(meteorChargeBtn, meteorChargeLevel, MAX_METEOR_CHARGE_LEVEL,
-            () => getUpgradeCost(meteorChargeLevel + 1),
-            () => {
-                meteorChargeLevel += 1;
-            });
-    });
-}
-}
-// --- Meteor Capacity Upgrade ---
-if (meteorCapacityBtn) {
-    meteorCapacityBtn.addEventListener("click", () => {
-        tryPurchase(meteorCapacityBtn, meteorCapacityLevel, MAX_METEOR_CAPACITY_LEVEL,
-            () => getUpgradeCost(meteorCapacityLevel + 1),
-            () => {
-                meteorCapacityLevel += 1;
-                if (meteorCapacityLevel === 1) {
-                    currentMeteors = 1;
-                } else {
-                    currentMeteors = Math.min(currentMeteors, meteorCapacityLevel);
-                }
-                refreshMeteorInventory();
-            });
-    });
-}
-
-function getMeteorRechargeSeconds() {
-    return 2 - (meteorChargeLevel * (1.75 / 20));
-}
-
-function updateMeteorRecharge(now) {
-    if (meteorCapacityLevel === 0) return;
-    if (currentMeteors >= meteorCapacityLevel) {
-        currentMeteors = meteorCapacityLevel;
-        // Stop recharging when at max
-        meteorCooldownEnd = 0;
-        if (meteorRechargeBar) meteorRechargeBar.style.width = "0%";
-        return;
-    }
-    // Only start charging if not already charging
-    if (meteorCooldownEnd === 0) {
-        meteorCooldownEnd = now + getMeteorRechargeSeconds() * 1000;
-    }
-    if (now >= meteorCooldownEnd) {
-        currentMeteors = Math.min(currentMeteors + 1, meteorCapacityLevel);
-        // If still not at max, start next charge; else, stop
-        if (currentMeteors < meteorCapacityLevel) {
-            meteorCooldownEnd = now + getMeteorRechargeSeconds() * 1000;
-        } else {
-            meteorCooldownEnd = 0;
-        }
-        refreshMeteorInventory();
-    } else if (meteorRechargeBar) {
-        // Show recharge progress bar
-        const total = getMeteorRechargeSeconds() * 1000;
-        const elapsed = total - (meteorCooldownEnd - now);
-        const pct = Math.max(0, Math.min(1, elapsed / total)) * 100;
-        meteorRechargeBar.style.width = pct + "%";
-    }
-}
-
-// --- Cooldown state ---
-let cooldownEnd = 0;     // timestamp when cooldown expires
-let cooldownDuration = 0; // current cooldown length in ms
-let onCooldown = false;
-
-// Cooldown scales linearly: 1.25s at lvl 1, 0.25s at lvl 20
-function getCooldownMs() {
-    return (1.25 - (speedLevel - 1) * (1.0 / 19)) * 1000;
-}
-
-// --- Upgrade buttons ---
-dustPerClickBtn.addEventListener("click", () => {
-    tryPurchase(dustPerClickBtn, dustLevel, MAX_DUST_LEVEL,
-        () => getUpgradeCost(dustLevel),
-        () => { dustLevel += 1; });
-});
-
-dustSizeBtn.addEventListener("click", () => {
-    tryPurchase(dustSizeBtn, sizeLevel, MAX_SIZE_LEVEL,
-        () => getUpgradeCost(sizeLevel),
-        () => { sizeLevel += 1; });
-});
-
-speedBtn.addEventListener("click", () => {
-    tryPurchase(speedBtn, speedLevel, MAX_SPEED_LEVEL,
-        () => getUpgradeCost(speedLevel),
-        () => { speedLevel += 1; });
-});
-
-// Initial UI refresh
-refreshSidebar();
-refreshCosts();
-updateMaxedButtons();
-
-// --- Particle class ---
-// Shared radius formula based on mass
-function dustRadius(mass) {
-    return 2 + mass * 0.3;
-}
-
-class Dust {
-    constructor(cx, cy) {
-        // Spawn at a random angle, in the outer 40% of the play area
+class Dust extends OrbitalEntity {
+    constructor(cx, cy, gameState, canvasWidth, canvasHeight) {
+        const mass = gameState.getEffectiveMass();
         const angle = Math.random() * Math.PI * 2;
-        const halfSize = Math.min(canvas.width, canvas.height) / 2;
-        const maxDist = halfSize - 10;           // stay on screen
-        const minDist = halfSize * 0.6;          // no closer than 60% of radius
+        const halfSize = Math.min(canvasWidth, canvasHeight) / 2;
+        const maxDist = halfSize - 10;
+        const minDist = halfSize * 0.6;
         const dist = minDist + Math.random() * (maxDist - minDist);
+        
+        super(cx + Math.cos(angle) * dist, cy + Math.sin(angle) * dist, mass);
 
-        this.cx = cx;           // center x (of play area)
-        this.cy = cy;           // center y
-        this.x = cx + Math.cos(angle) * dist;
-        this.y = cy + Math.sin(angle) * dist;
-        this.mass = getEffectiveMass();                 // snapshot mass at creation time
-        this.radius = dustRadius(this.mass);  // visual size scales with mass
-        this.alive = true;
-
-        // Random color variation: light to dark brown
-        const t = Math.random(); // 0 = dark brown, 1 = light brown
-        this.colorR = Math.round(100 + t * 139);  // 100–239
-        this.colorG = Math.round(60 + t * 110);   // 60–170
-        this.colorB = Math.round(30 + t * 70);    // 30–100
+        const t = Math.random();
+        this.colorR = Math.round(100 + t * 139);
+        this.colorG = Math.round(60 + t * 110);
+        this.colorB = Math.round(30 + t * 70);
         this.color = `rgb(${this.colorR},${this.colorG},${this.colorB})`;
+        this.trailAlphaMult = 0.4;
+        this.trailRadiusMult = 0.8;
 
-        // Orbital velocity (tangent to the radius vector)
-        // Scale with gravity so particles don't dive straight in at high gravity,
-        // but cap at ~70% of true orbital speed so they always spiral inward.
-        const gravityStrength = 0.03 * getGravityLevel();
+        const gravityStrength = 0.03 * gameState.getGravityLevel();
         const orbitalSpeed = Math.sqrt(gravityStrength * dist * 0.55);
         const speed = orbitalSpeed * (0.5 + Math.random() * 0.75);
         this.vx = -Math.sin(angle) * speed;
         this.vy = Math.cos(angle) * speed;
-
-        // Trail history – length scales with mass
-        this.trail = [];
     }
 
-    update(dt) {
-        // Always orbit the current screen center (handles resize / zoom)
-        this.cx = canvas.width / 2;
-        this.cy = canvas.height / 2;
-
-        // Vector from particle to center
-        const dx = this.cx - this.x;
-        const dy = this.cy - this.y;
+    update(dt, cx, cy, gameState) {
+        const dx = cx - this.x;
+        const dy = cy - this.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
 
-        if (dist < starRadius + this.radius) {
-            // Absorbed by the planet
+        if (dist < gameState.starRadius + this.radius) {
             this.alive = false;
-            starMass = Math.min(starMass + this.mass, MAX_STAR_MASS);
-            // Grow planet radius slowly (diminishing returns via sqrt)
-            starRadius = 12 + Math.sqrt(starMass) * 1.2;
-            refreshSidebar();
-            refreshCosts();
-            updateMaxedButtons();
-            return;
+            gameState.addStarMass(this.mass);
+            return true; // Indicates absorption
         }
 
-        // Gravity pull toward center – strength scales with gravity level and particle mass
         const massGravityMult = 1 + this.mass * DUST_MASS_GRAVITY_SCALE;
-        const gravityStrength =  (getGravityLevel() * massGravityMult) * 0.01;
-        const ax = (dx / dist) * gravityStrength;
-        const ay = (dy / dist) * gravityStrength;
+        const gravityStrength = (gameState.getGravityLevel() * massGravityMult) * 0.01;
+        
+        this.vx += (dx / dist) * gravityStrength;
+        this.vy += (dy / dist) * gravityStrength;
 
-        this.vx += ax;
-        this.vy += ay;
-
-        // Drag increases with mass – heavy particles slow down and crash
-        // Drag: base decay + gentle mass factor with a floor so heavy particles don't freeze
         const drag = Math.max(0.999 - this.mass * 0.0005, 0.993);
         this.vx *= drag;
         this.vy *= drag;
@@ -434,425 +151,551 @@ class Dust {
         this.x += this.vx;
         this.y += this.vy;
 
-        // Record trail position, cap length based on mass and speed
-        this.trail.push({ x: this.x, y: this.y });
         const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
-        const maxTrail = Math.min(Math.floor(5 + this.mass * 10 + speed * 5), 53);
-        if (this.trail.length > maxTrail) {
-            this.trail.splice(0, this.trail.length - maxTrail);
-        }
+        this.maxTrail = Math.min(Math.floor(5 + this.mass * 10 + speed * 5), 53);
+        this.updateTrail();
+        return false;
+    }
+}
+
+class Meteor extends OrbitalEntity {
+    constructor(x, y, gameState, canvasWidth, canvasHeight) {
+        const mass = gameState.getEffectiveMass() * 20;
+        super(x, y, mass);
+        this.radius = dustRadius(this.mass) * 1.2;
+
+        this.colorR = 180 + Math.floor(Math.random() * 40);
+        this.colorG = 210 + Math.floor(Math.random() * 30);
+        this.colorB = 255;
+        this.color = `rgb(${this.colorR},${this.colorG},${this.colorB})`;
+        this.trailAlphaMult = 0.5;
+        this.trailRadiusMult = 0.7;
+        this.maxTrail = 30;
+
+        const cx = canvasWidth / 2;
+        const cy = canvasHeight / 2;
+        const dx = cx - this.x;
+        const dy = cy - this.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const speed = 4 + (Math.random() * 10);
+        this.vx = (dx / dist) * speed;
+        this.vy = (dy / dist) * speed;
     }
 
-    draw(ctx) {
-        // Draw trail
-        const len = this.trail.length;
-        if (len > 1) {
-            for (let i = 0; i < len - 1; i++) {
-                const t = i / len; // 0 (oldest) to ~1 (newest)
-                const alpha = t * 0.4;
-                const r = this.radius * t * 0.8;
-                ctx.beginPath();
-                ctx.arc(this.trail[i].x, this.trail[i].y, Math.max(r, 0.5), 0, Math.PI * 2);
-                ctx.fillStyle = `rgba(${this.colorR}, ${this.colorG}, ${this.colorB}, ${alpha})`;
-                ctx.fill();
+    update(dt, cx, cy, gameState) {
+        this.x += this.vx * dt * (0.1 + gameState.starMass / MAX_STAR_MASS);
+        this.y += this.vy * dt * (0.1 + gameState.starMass / MAX_STAR_MASS);
+        
+        const dx = cx - this.x;
+        const dy = cy - this.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        
+        if (dist < gameState.starRadius + this.radius) {
+            this.alive = false;
+            gameState.addStarMass(this.mass);
+            return true; // Indicates absorption
+        }
+        
+        this.updateTrail();
+        return false;
+    }
+}
+
+// --- Physics System ---
+class Physics {
+    static resolveCollisions(particles, meteors, collisionFlashes, canvasWidth, canvasHeight) {
+        const gridSize = 60;
+        const gridCols = Math.ceil(canvasWidth / gridSize);
+        const gridRows = Math.ceil(canvasHeight / gridSize);
+        const dustGrid = Array.from({ length: gridCols * gridRows }, () => []);
+
+        // Populate Grid
+        for (let i = 0; i < particles.length; i++) {
+            const p = particles[i];
+            if (!p.alive) continue;
+            const col = Math.floor(p.x / gridSize);
+            const row = Math.floor(p.y / gridSize);
+            if (col >= 0 && col < gridCols && row >= 0 && row < gridRows) {
+                dustGrid[row * gridCols + col].push(i);
             }
         }
 
-        // Draw particle
-        ctx.beginPath();
-        ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
-        ctx.fillStyle = this.color;
-        ctx.fill();
-    }
-}
-
-
-// --- Create dust on click (with cooldown) ---
-function spawnDust(silent) {
-    if (onCooldown) return;
-
-    if (particles.length + getEffectiveDust() > MAX_PARTICLES) {
-        if (!silent) {
-            createDustBtn.classList.remove("flash-red");
-            void createDustBtn.offsetWidth;
-            createDustBtn.classList.add("flash-red");
-            createDustBtn.addEventListener("animationend", () => createDustBtn.classList.remove("flash-red"), { once: true });
-        }
-        return;
-    }
-
-    const cx = canvas.width / 2;
-    const cy = canvas.height / 2;
-    const count = Math.min(getEffectiveDust(), MAX_PARTICLES - particles.length);
-    for (let i = 0; i < count; i++) {
-        particles.push(new Dust(cx, cy));
-    }
-
-    // Start cooldown
-    cooldownDuration = getCooldownMs();
-    cooldownEnd = performance.now() + cooldownDuration;
-    onCooldown = true;
-    createDustBtn.classList.add("on-cooldown");
-}
-
-createDustBtn.addEventListener("click", spawnDust);
-
-// --- Auto-play ---
-const autoPlayBtn = document.getElementById("autoPlayBtn");
-let autoPlaying = false;
-
-autoPlayBtn.addEventListener("click", () => {
-    autoPlaying = !autoPlaying;
-    autoPlayBtn.classList.toggle("active", autoPlaying);
-    if (autoPlaying && !onCooldown) spawnDust(true);
-});
-
-// --- Background stars (static, generated once at large virtual size) ---
-// Stars are generated once at a large virtual canvas, then scaled to fit window.
-const VIRTUAL_STAR_SIZE = 8000; // Larger to cover big screens
-const VIRTUAL_CENTER = VIRTUAL_STAR_SIZE / 2;
-const stars = [];
-// Minimum dead zone radius multiplier (planet radius * this)
-const STAR_DEADZONE_MULT = 0.75;
-function getVirtualDeadZoneRadius() {
-    // Estimate max possible starRadius at max mass
-    // starRadius = 12 + Math.sqrt(starMass) * 1.2
-    // Use MAX_STAR_MASS for largest possible deadzone
-    return (12 + Math.sqrt(MAX_STAR_MASS) * 1.2) * STAR_DEADZONE_MULT * (VIRTUAL_STAR_SIZE / Math.max(window.innerWidth, window.innerHeight));
-}
-function generateStars() {
-    stars.length = 0;
-    const count = 400;
-    const minDeadZone = getVirtualDeadZoneRadius();
-    for (let i = 0; i < count; ) {
-        const angle = Math.random() * 2 * Math.PI;
-        const radius = Math.random() * (VIRTUAL_STAR_SIZE / 2);
-        // Filter: don't allow stars too close to center (planet)
-        if (radius < minDeadZone) continue;
-        const dx = Math.cos(angle) * radius;
-        const dy = Math.sin(angle) * radius;
-        const size = Math.random() * 1.5 + 3;
-        stars.push({ dx, dy, size });
-        i++;
-    }
-}
-generateStars();
-
-// When drawing stars, scale/center to fit window
-function drawStars(ctx, stars, canvasWidth, canvasHeight) {
-    const scale = Math.min(canvasWidth * 2, canvasHeight * 2) / VIRTUAL_STAR_SIZE;
-    const centerX = canvasWidth / 2;
-    const centerY = canvasHeight / 2;
-    ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-    ctx.fillStyle = "#fff";
-    // Calculate current deadzone in virtual space based on current starRadius
-    const currentDeadZone = starRadius * STAR_DEADZONE_MULT / scale;
-    for (const star of stars) {
-        // Optionally, skip drawing if star is inside current deadzone (planet grew)
-        const dist = Math.sqrt(star.dx * star.dx + star.dy * star.dy);
-        if (dist < currentDeadZone) continue;
-        ctx.beginPath();
-        ctx.arc(centerX + star.dx * scale, centerY + star.dy * scale, star.size * scale, 0, 2 * Math.PI);
-        ctx.fill();
-    }
-}
-
-// --- Planet colour helpers ---
-// Lerp between two [r,g,b] colours
-function lerpColor(a, b, t) {
-    return [
-        Math.round(a[0] + (b[0] - a[0]) * t),
-        Math.round(a[1] + (b[1] - a[1]) * t),
-        Math.round(a[2] + (b[2] - a[2]) * t)
-    ];
-}
-
-// Returns an RGB string that fades deep-red ➜ orange ➜ yellow ➜ white
-// as starMass increases.  `t` is clamped 0-1.
-function planetColor(t) {
-    const stops = [
-        [90, 35, 40],     // deep red
-        [180, 60, 35],    // red-orange
-        [220, 140, 50],   // orange
-        [240, 210, 100],  // warm yellow
-        [250, 240, 210]   // near-white (never fully white)
-    ];
-    const seg = t * (stops.length - 1);
-    const i = Math.min(Math.floor(seg), stops.length - 2);
-    const local = seg - i;
-    const c = lerpColor(stops[i], stops[i + 1], local);
-    return `rgb(${c[0]},${c[1]},${c[2]})`;
-}
-
-function planetHighlight(t) {
-    const stops = [
-        [168, 68, 72],    // lighter red highlight
-        [220, 110, 60],
-        [245, 190, 90],
-        [255, 235, 170],
-        [255, 248, 230]   // soft warm white highlight
-    ];
-    const seg = t * (stops.length - 1);
-    const i = Math.min(Math.floor(seg), stops.length - 2);
-    const local = seg - i;
-    const c = lerpColor(stops[i], stops[i + 1], local);
-    return `rgb(${c[0]},${c[1]},${c[2]})`;
-}
-
-// --- Draw planet ---
-function drawPlanet() {
-    const cx = canvas.width / 2;
-    const cy = canvas.height / 2;
-
-    // t ramps 0 ➜ 1 as mass grows, scaled to MAX_STAR_MASS
-    const t = Math.min(starMass / MAX_STAR_MASS, 1);
-    const coreColor = planetColor(t);
-    const highColor = planetHighlight(t);
-
-    // Outer glow – tint follows the planet colour
-    const glow = ctx.createRadialGradient(cx, cy, starRadius * 0.5, cx, cy, starRadius * 2.5);
-    glow.addColorStop(0, coreColor.replace("rgb", "rgba").replace(")", ",0.45)"));
-    glow.addColorStop(1, coreColor.replace("rgb", "rgba").replace(")", ",0)"));
-    ctx.beginPath();
-    ctx.arc(cx, cy, starRadius * 2.5, 0, Math.PI * 2);
-    ctx.fillStyle = glow;
-    ctx.fill();
-
-    // Planet body
-    const grad = ctx.createRadialGradient(
-        cx - starRadius * 0.3, cy - starRadius * 0.3, starRadius * 0.1,
-        cx, cy, starRadius
-    );
-    grad.addColorStop(0, highColor);
-    grad.addColorStop(1, coreColor);
-    ctx.beginPath();
-    ctx.arc(cx, cy, starRadius, 0, Math.PI * 2);
-    ctx.fillStyle = grad;
-    ctx.fill();
-}
-
-// --- Game loop ---
-let lastTime = performance.now();
-
-function gameLoop(now) {
-    const dt = (now - lastTime) / 16.667;  // normalise to ~60 fps
-    lastTime = now;
-
-    // Clear
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    // Background
-    drawStars(ctx, stars, canvas.width, canvas.height);
-
-    // Update & cull particles
-    for (let i = particles.length - 1; i >= 0; i--) {
-        particles[i].update(dt);
-        if (!particles[i].alive) {
-            particles.splice(i, 1);
-        }
-    }
-    // Update & cull meteors
-    for (let i = meteors.length - 1; i >= 0; i--) {
-        meteors[i].update(dt);
-        if (!meteors[i].alive) {
-            meteors.splice(i, 1);
-        }
-    }
-
-    // Meteor recharge
-    updateMeteorRecharge(now);
-
-    // Dust-to-dust collisions
-    // --- Spatial grid collision optimization ---
-    const gridSize = 60; // Adjust for performance/accuracy
-    const gridCols = Math.ceil(canvas.width / gridSize);
-    const gridRows = Math.ceil(canvas.height / gridSize);
-    // Build grid
-    const dustGrid = Array.from({ length: gridCols * gridRows }, () => []);
-    for (let i = 0; i < particles.length; i++) {
-        const p = particles[i];
-        if (!p.alive) continue;
-        const col = Math.floor(p.x / gridSize);
-        const row = Math.floor(p.y / gridSize);
-        if (col >= 0 && col < gridCols && row >= 0 && row < gridRows) {
-            dustGrid[row * gridCols + col].push(i);
-        }
-    }
-    // Check collisions only in neighboring cells
-    for (let col = 0; col < gridCols; col++) {
-        for (let row = 0; row < gridRows; row++) {
-            const cellIdx = row * gridCols + col;
-            const indices = dustGrid[cellIdx];
-            // Check within cell
-            for (let aIdx = 0; aIdx < indices.length; aIdx++) {
-                const a = particles[indices[aIdx]];
-                if (!a.alive) continue;
-                // Check against other particles in cell
-                for (let bIdx = aIdx + 1; bIdx < indices.length; bIdx++) {
-                    const b = particles[indices[bIdx]];
-                    if (!b.alive) continue;
-                    const dx = a.x - b.x;
-                    const dy = a.y - b.y;
-                    const distSq = dx * dx + dy * dy;
-                    const minDist = a.radius + b.radius;
-                    if (distSq < minDist * minDist) {
-                        // Record collision flash at midpoint
-                        const flashX = (a.x + b.x) / 2;
-                        const flashY = (a.y + b.y) / 2;
-                        collisionFlashes.push({ x: flashX, y: flashY, life: 1.0, radius: minDist * 1.5 });
-                        // Merge b into a (conservation of momentum for direction,
-                        // but preserve at least the faster particle's speed)
-                        const totalMass = a.mass + b.mass;
-                        const mvx = (a.vx * a.mass + b.vx * b.mass) / totalMass;
-                        const mvy = (a.vy * a.mass + b.vy * b.mass) / totalMass;
-                        const mergedSpeed = Math.sqrt(mvx * mvx + mvy * mvy);
-                        const speedA = Math.sqrt(a.vx * a.vx + a.vy * a.vy);
-                        const speedB = Math.sqrt(b.vx * b.vx + b.vy * b.vy);
-                        const keepSpeed = Math.max(mergedSpeed, Math.max(speedA, speedB) * 0.85);
-                        if (mergedSpeed > 0.001) {
-                            a.vx = (mvx / mergedSpeed) * keepSpeed;
-                            a.vy = (mvy / mergedSpeed) * keepSpeed;
-                        } else {
-                            a.vx = mvx;
-                            a.vy = mvy;
-                        }
-                        a.mass = totalMass;
-                        a.radius = dustRadius(a.mass);
-                        b.alive = false;
+        // Dust-to-Dust
+        for (let col = 0; col < gridCols; col++) {
+            for (let row = 0; row < gridRows; row++) {
+                const cellIdx = row * gridCols + col;
+                const indices = dustGrid[cellIdx];
+                
+                for (let aIdx = 0; aIdx < indices.length; aIdx++) {
+                    const a = particles[indices[aIdx]];
+                    if (!a.alive) continue;
+                    
+                    for (let bIdx = aIdx + 1; bIdx < indices.length; bIdx++) {
+                        const b = particles[indices[bIdx]];
+                        this.checkDustCollision(a, b, collisionFlashes);
                     }
-                }
-                // Check against neighboring cells
-                for (let dCol = -1; dCol <= 1; dCol++) {
-                    for (let dRow = -1; dRow <= 1; dRow++) {
-                        if (dCol === 0 && dRow === 0) continue;
-                        const nCol = col + dCol;
-                        const nRow = row + dRow;
-                        if (nCol < 0 || nCol >= gridCols || nRow < 0 || nRow >= gridRows) continue;
-                        const neighborIdx = nRow * gridCols + nCol;
-                        const neighbor = dustGrid[neighborIdx];
-                        for (let bIdx = 0; bIdx < neighbor.length; bIdx++) {
-                            const b = particles[neighbor[bIdx]];
-                            if (!b.alive) continue;
-                            const dx = a.x - b.x;
-                            const dy = a.y - b.y;
-                            const distSq = dx * dx + dy * dy;
-                            const minDist = a.radius + b.radius;
-                            if (distSq < minDist * minDist) {
-                                // Record collision flash at midpoint
-                                const flashX = (a.x + b.x) / 2;
-                                const flashY = (a.y + b.y) / 2;
-                                collisionFlashes.push({ x: flashX, y: flashY, life: 1.0, radius: minDist * 1.5 });
-                                // Merge b into a (conservation of momentum for direction,
-                                // but preserve at least the faster particle's speed)
-                                const totalMass = a.mass + b.mass;
-                                const mvx = (a.vx * a.mass + b.vx * b.mass) / totalMass;
-                                const mvy = (a.vy * a.mass + b.vy * b.mass) / totalMass;
-                                const mergedSpeed = Math.sqrt(mvx * mvx + mvy * mvy);
-                                const speedA = Math.sqrt(a.vx * a.vx + a.vy * a.vy);
-                                const speedB = Math.sqrt(b.vx * b.vx + b.vy * b.vy);
-                                const keepSpeed = Math.max(mergedSpeed, Math.max(speedA, speedB) * 0.85);
-                                if (mergedSpeed > 0.001) {
-                                    a.vx = (mvx / mergedSpeed) * keepSpeed;
-                                    a.vy = (mvy / mergedSpeed) * keepSpeed;
-                                } else {
-                                    a.vx = mvx;
-                                    a.vy = mvy;
-                                }
-                                a.mass = totalMass;
-                                a.radius = dustRadius(a.mass);
-                                b.alive = false;
+
+                    for (let dCol = -1; dCol <= 1; dCol++) {
+                        for (let dRow = -1; dRow <= 1; dRow++) {
+                            if (dCol === 0 && dRow === 0) continue;
+                            const nCol = col + dCol;
+                            const nRow = row + dRow;
+                            if (nCol < 0 || nCol >= gridCols || nRow < 0 || nRow >= gridRows) continue;
+                            
+                            const neighbor = dustGrid[nRow * gridCols + nCol];
+                            for (let bIdx = 0; bIdx < neighbor.length; bIdx++) {
+                                const b = particles[neighbor[bIdx]];
+                                this.checkDustCollision(a, b, collisionFlashes);
                             }
                         }
                     }
                 }
             }
         }
-    }
-    // Meteor-to-dust collisions (meteors absorb dust)
-    // --- Meteor-to-dust collisions using grid ---
-    for (let i = 0; i < meteors.length; i++) {
-        const m = meteors[i];
-        if (!m.alive) continue;
-        const col = Math.floor(m.x / gridSize);
-        const row = Math.floor(m.y / gridSize);
-        for (let dCol = -1; dCol <= 1; dCol++) {
-            for (let dRow = -1; dRow <= 1; dRow++) {
-                const nCol = col + dCol;
-                const nRow = row + dRow;
-                if (nCol < 0 || nCol >= gridCols || nRow < 0 || nRow >= gridRows) continue;
-                const neighborIdx = nRow * gridCols + nCol;
-                const neighbor = dustGrid[neighborIdx];
-                for (let bIdx = 0; bIdx < neighbor.length; bIdx++) {
-                    const d = particles[neighbor[bIdx]];
-                    if (!d.alive) continue;
-                    const dx = m.x - d.x;
-                    const dy = m.y - d.y;
-                    const distSq = dx * dx + dy * dy;
-                    const minDist = m.radius + d.radius;
-                    if (distSq < minDist * minDist) {
-                        // Flash at collision
-                        const flashX = (m.x + d.x) / 2;
-                        const flashY = (m.y + d.y) / 2;
-                        collisionFlashes.push({ x: flashX, y: flashY, life: 1.0, radius: minDist * 1.5 });
-                        // Meteor absorbs dust
-                        m.mass += d.mass;
-                        m.radius = dustRadius(m.mass) * 1.2;
-                        d.alive = false;
+
+        // Meteor-to-Dust
+        for (let i = 0; i < meteors.length; i++) {
+            const m = meteors[i];
+            if (!m.alive) continue;
+            const col = Math.floor(m.x / gridSize);
+            const row = Math.floor(m.y / gridSize);
+            
+            for (let dCol = -1; dCol <= 1; dCol++) {
+                for (let dRow = -1; dRow <= 1; dRow++) {
+                    const nCol = col + dCol;
+                    const nRow = row + dRow;
+                    if (nCol < 0 || nCol >= gridCols || nRow < 0 || nRow >= gridRows) continue;
+                    
+                    const neighbor = dustGrid[nRow * gridCols + nCol];
+                    for (let bIdx = 0; bIdx < neighbor.length; bIdx++) {
+                        const d = particles[neighbor[bIdx]];
+                        if (!d.alive) continue;
+                        
+                        const dx = m.x - d.x;
+                        const dy = m.y - d.y;
+                        if (dx * dx + dy * dy < (m.radius + d.radius) * (m.radius + d.radius)) {
+                            collisionFlashes.push({ x: (m.x + d.x) / 2, y: (m.y + d.y) / 2, life: 1.0, radius: (m.radius + d.radius) * 1.5 });
+                            m.mass += d.mass;
+                            m.radius = dustRadius(m.mass) * 1.2;
+                            d.alive = false;
+                        }
                     }
                 }
             }
         }
     }
 
-    // Cull merged particles
-    for (let i = particles.length - 1; i >= 0; i--) {
-        if (!particles[i].alive) particles.splice(i, 1);
+    static checkDustCollision(a, b, collisionFlashes) {
+        if (!b.alive) return;
+        const dx = a.x - b.x;
+        const dy = a.y - b.y;
+        const minDist = a.radius + b.radius;
+        
+        if (dx * dx + dy * dy < minDist * minDist) {
+            collisionFlashes.push({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, life: 1.0, radius: minDist * 1.5 });
+            
+            const totalMass = a.mass + b.mass;
+            const mvx = (a.vx * a.mass + b.vx * b.mass) / totalMass;
+            const mvy = (a.vy * a.mass + b.vy * b.mass) / totalMass;
+            const mergedSpeed = Math.sqrt(mvx * mvx + mvy * mvy);
+            const speedA = Math.sqrt(a.vx * a.vx + a.vy * a.vy);
+            const speedB = Math.sqrt(b.vx * b.vx + b.vy * b.vy);
+            const keepSpeed = Math.max(mergedSpeed, Math.max(speedA, speedB) * 0.85);
+            
+            if (mergedSpeed > 0.001) {
+                a.vx = (mvx / mergedSpeed) * keepSpeed;
+                a.vy = (mvy / mergedSpeed) * keepSpeed;
+            } else {
+                a.vx = mvx;
+                a.vy = mvy;
+            }
+            a.mass = totalMass;
+            a.radius = dustRadius(a.mass);
+            b.alive = false;
+        }
+    }
+}
+
+// --- UI Manager ---
+class UIManager {
+    constructor(game) {
+        this.game = game;
+        this.state = game.state;
+        
+        this.elements = {
+            upgradeBar: document.getElementById("upgradeBar"),
+            shopBtn: document.getElementById("shop"),
+            upgradeButtons: Array.from(document.getElementsByClassName("upgradeButton")),
+            createDustBtn: document.getElementById("createDust"),
+            autoPlayBtn: document.getElementById("autoPlayBtn"),
+            dustPerClickBtn: document.getElementById("dustPerClickButton"),
+            dustSizeBtn: document.getElementById("dustSizeButton"),
+            speedBtn: document.getElementById("speedButton"),
+            meteorCapacityBtn: document.getElementById("meteorCapacityButton"),
+            meteorChargeBtn: document.getElementById("meteorChargeButton"),
+            cooldownBar: document.getElementById("cooldownBar"),
+            meteorRechargeBar: document.getElementById("meteorRechargeBar"),
+            massDisplay: document.getElementById("massDisplay"),
+            dustLevelDisplay: document.getElementById("dustLevelDisplay"),
+            sizeLevelDisplay: document.getElementById("sizeLevelDisplay"),
+            speedLevelDisplay: document.getElementById("speedLevelDisplay"),
+            dustCostDisplay: document.getElementById("dustCostDisplay"),
+            sizeCostDisplay: document.getElementById("sizeCostDisplay"),
+            speedCostDisplay: document.getElementById("speedCostDisplay"),
+            meteorCapacityCostDisplay: document.getElementById("meteorCapacityCostDisplay"),
+            meteorChargeCostDisplay: document.getElementById("meteorChargeCostDisplay"),
+            meteorInventoryDisplay: document.getElementById("meteorInventoryDisplay"),
+            canvas: document.getElementById("gameCanvas")
+        };
+
+        this.upgradeBarTimeout = null;
+        this.bindEvents();
+        this.refreshAll();
     }
 
-    // Draw particles
-    for (const p of particles) {
-        p.draw(ctx);
-    }
-    // Draw meteors
-    for (const m of meteors) {
-        m.draw(ctx);
-    }
+    bindEvents() {
+        this.elements.shopBtn.addEventListener("click", (e) => { this.showUpgradeBar(); e.stopPropagation(); });
+        this.elements.upgradeButtons.forEach(btn => btn.addEventListener("click", (e) => { this.showUpgradeBar(); e.stopPropagation(); }));
+        document.addEventListener("click", (e) => {
+            if (!this.elements.upgradeBar.contains(e.target) && e.target !== this.elements.shopBtn) this.hideUpgradeBar();
+        });
 
-    // Draw and decay collision flashes
-    for (let i = collisionFlashes.length - 1; i >= 0; i--) {
-        const f = collisionFlashes[i];
-        ctx.beginPath();
-        ctx.arc(f.x, f.y, f.radius * (1 - f.life * 0.5), 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(255, 240, 200, ${f.life * 0.35})`;
-        ctx.fill();
-        f.life -= 0.06;
-        if (f.life <= 0) collisionFlashes.splice(i, 1);
-    }
+        window.addEventListener("resize", () => this.game.resizeCanvas());
 
-    // Draw planet on top so absorbed dust disappears cleanly
-    drawPlanet();
+        this.elements.createDustBtn.addEventListener("click", () => this.game.spawnDust(false));
+        this.elements.autoPlayBtn.addEventListener("click", () => {
+            this.state.autoPlaying = !this.state.autoPlaying;
+            this.elements.autoPlayBtn.classList.toggle("active", this.state.autoPlaying);
+            if (this.state.autoPlaying && !this.state.onCooldown) this.game.spawnDust(true);
+        });
 
-    // Update cooldown bar
-    if (onCooldown) {
-        const remaining = cooldownEnd - now;
-        if (remaining <= 0) {
-            onCooldown = false;
-            cooldownBar.style.width = "0%";
-            createDustBtn.classList.remove("on-cooldown");
-            // Auto-play: immediately click again
-            if (autoPlaying) spawnDust(true);
-        } else {
-            const pct = (1 - remaining / cooldownDuration) * 100;
-            cooldownBar.style.width = pct + "%";
+        this.elements.canvas.addEventListener("mousedown", (e) => this.game.spawnMeteor(e));
+
+        this.bindUpgrade(this.elements.dustPerClickBtn, 'dustLevel', MAX_DUST_LEVEL);
+        this.bindUpgrade(this.elements.dustSizeBtn, 'sizeLevel', MAX_SIZE_LEVEL);
+        this.bindUpgrade(this.elements.speedBtn, 'speedLevel', MAX_SPEED_LEVEL);
+        
+        if (this.elements.meteorCapacityBtn) {
+            this.elements.meteorCapacityBtn.addEventListener("click", () => {
+                this.tryPurchase(this.elements.meteorCapacityBtn, this.state.meteorCapacityLevel, MAX_METEOR_CAPACITY_LEVEL, () => {
+                    this.state.meteorCapacityLevel += 1;
+                    this.state.currentMeteors = this.state.meteorCapacityLevel === 1 ? 1 : Math.min(this.state.currentMeteors, this.state.meteorCapacityLevel);
+                });
+            });
+        }
+
+        if (this.elements.meteorChargeBtn) {
+            this.bindUpgrade(this.elements.meteorChargeBtn, 'meteorChargeLevel', MAX_METEOR_CHARGE_LEVEL);
         }
     }
 
-    // Auto-play: keep retrying when cooldown is off but cap was hit
-    if (autoPlaying && !onCooldown && particles.length + getEffectiveDust() <= MAX_PARTICLES) {
-        spawnDust(true);
+    bindUpgrade(btn, stateKey, maxLevel) {
+        if (!btn) return;
+        btn.addEventListener("click", () => {
+            this.tryPurchase(btn, this.state[stateKey], maxLevel, () => { this.state[stateKey] += 1; });
+        });
     }
 
-    requestAnimationFrame(gameLoop);
+    tryPurchase(btn, currentLevel, maxLevel, onSuccess) {
+        if (currentLevel >= maxLevel) return;
+        const cost = this.state.getUpgradeCost(currentLevel + 1); // Adjust based on original offset logic
+        
+        // Match original offset logic where dust/size/speed passed current level, meteor passed current + 1
+        const actualCost = btn.id.includes("meteor") ? this.state.getUpgradeCost(currentLevel + 1) : this.state.getUpgradeCost(currentLevel);
+        
+        if (this.state.starMass < actualCost) {
+            btn.classList.remove("flash-red");
+            void btn.offsetWidth;
+            btn.classList.add("flash-red");
+            btn.addEventListener("animationend", () => btn.classList.remove("flash-red"), { once: true });
+            return;
+        }
+        this.state.starMass -= actualCost;
+        this.state.starRadius = 12 + Math.sqrt(this.state.starMass) * 1.2;
+        onSuccess();
+        this.refreshAll();
+    }
+
+    showUpgradeBar() {
+        this.elements.upgradeBar.classList.add("visible");
+        clearTimeout(this.upgradeBarTimeout);
+        this.upgradeBarTimeout = setTimeout(() => this.hideUpgradeBar(), 10000);
+    }
+
+    hideUpgradeBar() {
+        this.elements.upgradeBar.classList.remove("visible");
+        clearTimeout(this.upgradeBarTimeout);
+    }
+
+    refreshAll() {
+        this.elements.massDisplay.textContent = Math.floor(this.state.starMass);
+        this.elements.dustLevelDisplay.textContent = this.state.dustLevel;
+        this.elements.sizeLevelDisplay.textContent = this.state.sizeLevel;
+        this.elements.speedLevelDisplay.textContent = this.state.speedLevel;
+
+        this.elements.dustCostDisplay.textContent = this.state.dustLevel >= MAX_DUST_LEVEL ? "MAX" : this.state.getUpgradeCost(this.state.dustLevel);
+        this.elements.sizeCostDisplay.textContent = this.state.sizeLevel >= MAX_SIZE_LEVEL ? "MAX" : this.state.getUpgradeCost(this.state.sizeLevel);
+        this.elements.speedCostDisplay.textContent = this.state.speedLevel >= MAX_SPEED_LEVEL ? "MAX" : this.state.getUpgradeCost(this.state.speedLevel);
+        
+        if (this.elements.meteorCapacityCostDisplay) {
+            this.elements.meteorCapacityCostDisplay.textContent = this.state.meteorCapacityLevel >= MAX_METEOR_CAPACITY_LEVEL ? "MAX" : this.state.getUpgradeCost(this.state.meteorCapacityLevel + 1);
+        }
+        if (this.elements.meteorChargeCostDisplay) {
+            this.elements.meteorChargeCostDisplay.textContent = this.state.meteorChargeLevel >= MAX_METEOR_CHARGE_LEVEL ? "MAX" : this.state.getUpgradeCost(this.state.meteorChargeLevel + 1);
+        }
+
+        this.refreshMeteorInventory();
+        this.updateMaxedButtons();
+    }
+
+    refreshMeteorInventory() {
+        if (this.elements.meteorInventoryDisplay) {
+            this.elements.meteorInventoryDisplay.textContent = `${this.state.currentMeteors} / ${this.state.meteorCapacityLevel}`;
+        }
+        if (this.elements.meteorRechargeBar && (this.state.currentMeteors >= this.state.meteorCapacityLevel || this.state.meteorCapacityLevel === 0)) {
+            this.elements.meteorRechargeBar.style.width = "0%";
+        }
+    }
+
+    updateMaxedButtons() {
+        this.elements.dustPerClickBtn.classList.toggle("maxed", this.state.dustLevel >= MAX_DUST_LEVEL);
+        this.elements.dustSizeBtn.classList.toggle("maxed", this.state.sizeLevel >= MAX_SIZE_LEVEL);
+        this.elements.speedBtn.classList.toggle("maxed", this.state.speedLevel >= MAX_SPEED_LEVEL);
+        if (this.elements.meteorCapacityBtn) this.elements.meteorCapacityBtn.classList.toggle("maxed", this.state.meteorCapacityLevel >= MAX_METEOR_CAPACITY_LEVEL);
+        if (this.elements.meteorChargeBtn) this.elements.meteorChargeBtn.classList.toggle("maxed", this.state.meteorChargeLevel >= MAX_METEOR_CHARGE_LEVEL);
+    }
+
+    updateCooldownBars(now) {
+        if (this.state.onCooldown) {
+            const remaining = this.state.cooldownEnd - now;
+            if (remaining <= 0) {
+                this.state.onCooldown = false;
+                this.elements.cooldownBar.style.width = "0%";
+                this.elements.createDustBtn.classList.remove("on-cooldown");
+                if (this.state.autoPlaying) this.game.spawnDust(true);
+            } else {
+                this.elements.cooldownBar.style.width = ((1 - remaining / this.state.cooldownDuration) * 100) + "%";
+            }
+        }
+
+        if (this.state.meteorCapacityLevel > 0) {
+            if (this.state.currentMeteors >= this.state.meteorCapacityLevel) {
+                this.state.meteorCooldownEnd = 0;
+                if (this.elements.meteorRechargeBar) this.elements.meteorRechargeBar.style.width = "0%";
+            } else {
+                if (this.state.meteorCooldownEnd === 0) {
+                    this.state.meteorCooldownEnd = now + this.state.getMeteorRechargeSeconds() * 1000;
+                }
+                if (now >= this.state.meteorCooldownEnd) {
+                    this.state.currentMeteors = Math.min(this.state.currentMeteors + 1, this.state.meteorCapacityLevel);
+                    this.state.meteorCooldownEnd = this.state.currentMeteors < this.state.meteorCapacityLevel ? now + this.state.getMeteorRechargeSeconds() * 1000 : 0;
+                    this.refreshMeteorInventory();
+                } else if (this.elements.meteorRechargeBar) {
+                    const total = this.state.getMeteorRechargeSeconds() * 1000;
+                    const pct = Math.max(0, Math.min(1, (total - (this.state.meteorCooldownEnd - now)) / total)) * 100;
+                    this.elements.meteorRechargeBar.style.width = pct + "%";
+                }
+            }
+        }
+    }
 }
 
-requestAnimationFrame(gameLoop);
+// --- Renderer ---
+class Renderer {
+    constructor(canvas) {
+        this.canvas = canvas;
+        this.ctx = canvas.getContext("2d");
+        this.stars = [];
+        this.generateStars();
+    }
+
+    generateStars() {
+        const count = 400;
+        const minDeadZone = (12 + Math.sqrt(MAX_STAR_MASS) * 1.2) * STAR_DEADZONE_MULT * (VIRTUAL_STAR_SIZE / Math.max(window.innerWidth, window.innerHeight));
+        for (let i = 0; i < count; ) {
+            const angle = Math.random() * 2 * Math.PI;
+            const radius = Math.random() * (VIRTUAL_STAR_SIZE / 2);
+            if (radius < minDeadZone) continue;
+            this.stars.push({ dx: Math.cos(angle) * radius, dy: Math.sin(angle) * radius, size: Math.random() * 1.5 + 3 });
+            i++;
+        }
+    }
+
+    drawBackground(starRadius) {
+        const scale = Math.min(this.canvas.width * 2, this.canvas.height * 2) / VIRTUAL_STAR_SIZE;
+        const centerX = this.canvas.width / 2;
+        const centerY = this.canvas.height / 2;
+        
+        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        this.ctx.fillStyle = "#fff";
+        
+        const currentDeadZone = starRadius * STAR_DEADZONE_MULT / scale;
+        for (const star of this.stars) {
+            if (Math.sqrt(star.dx * star.dx + star.dy * star.dy) < currentDeadZone) continue;
+            this.ctx.beginPath();
+            this.ctx.arc(centerX + star.dx * scale, centerY + star.dy * scale, star.size * scale, 0, 2 * Math.PI);
+            this.ctx.fill();
+        }
+    }
+
+    drawPlanet(starMass, starRadius) {
+        const cx = this.canvas.width / 2;
+        const cy = this.canvas.height / 2;
+        const t = Math.min(starMass / MAX_STAR_MASS, 1);
+        
+        const coreColor = this.lerpPlanetColors([
+            [90, 35, 40], [180, 60, 35], [220, 140, 50], [240, 210, 100], [250, 240, 210]
+        ], t);
+        
+        const highColor = this.lerpPlanetColors([
+            [168, 68, 72], [220, 110, 60], [245, 190, 90], [255, 235, 170], [255, 248, 230]
+        ], t);
+
+        const glow = this.ctx.createRadialGradient(cx, cy, starRadius * 0.5, cx, cy, starRadius * 2.5);
+        glow.addColorStop(0, coreColor.replace("rgb", "rgba").replace(")", ",0.45)"));
+        glow.addColorStop(1, coreColor.replace("rgb", "rgba").replace(")", ",0)"));
+        
+        this.ctx.beginPath();
+        this.ctx.arc(cx, cy, starRadius * 2.5, 0, Math.PI * 2);
+        this.ctx.fillStyle = glow;
+        this.ctx.fill();
+
+        const grad = this.ctx.createRadialGradient(cx - starRadius * 0.3, cy - starRadius * 0.3, starRadius * 0.1, cx, cy, starRadius);
+        grad.addColorStop(0, highColor);
+        grad.addColorStop(1, coreColor);
+        
+        this.ctx.beginPath();
+        this.ctx.arc(cx, cy, starRadius, 0, Math.PI * 2);
+        this.ctx.fillStyle = grad;
+        this.ctx.fill();
+    }
+
+    lerpPlanetColors(stops, t) {
+        const seg = t * (stops.length - 1);
+        const i = Math.min(Math.floor(seg), stops.length - 2);
+        const local = seg - i;
+        const a = stops[i], b = stops[i + 1];
+        const r = Math.round(a[0] + (b[0] - a[0]) * local);
+        const g = Math.round(a[1] + (b[1] - a[1]) * local);
+        const bCol = Math.round(a[2] + (b[2] - a[2]) * local);
+        return `rgb(${r},${g},${bCol})`;
+    }
+
+    drawFlashes(flashes) {
+        for (let i = flashes.length - 1; i >= 0; i--) {
+            const f = flashes[i];
+            this.ctx.beginPath();
+            this.ctx.arc(f.x, f.y, f.radius * (1 - f.life * 0.5), 0, Math.PI * 2);
+            this.ctx.fillStyle = `rgba(255, 240, 200, ${f.life * 0.35})`;
+            this.ctx.fill();
+            f.life -= 0.06;
+            if (f.life <= 0) flashes.splice(i, 1);
+        }
+    }
+}
+
+// --- Main Engine ---
+class Game {
+    constructor() {
+        this.state = new GameState();
+        this.ui = new UIManager(this);
+        this.renderer = new Renderer(this.ui.elements.canvas);
+        
+        this.particles = [];
+        this.meteors = [];
+        this.collisionFlashes = [];
+        this.lastTime = performance.now();
+        
+        this.resizeCanvas();
+        this.ui.elements.upgradeBar.classList.remove("visible"); // Initial hide
+        requestAnimationFrame((now) => this.loop(now));
+    }
+
+    resizeCanvas() {
+        this.ui.elements.canvas.width = window.innerWidth;
+        this.ui.elements.canvas.height = window.innerHeight;
+    }
+
+    spawnDust(silent) {
+        if (this.state.onCooldown) return;
+        if (this.particles.length + this.state.getEffectiveDust() > MAX_PARTICLES) {
+            if (!silent) {
+                const btn = this.ui.elements.createDustBtn;
+                btn.classList.remove("flash-red");
+                void btn.offsetWidth;
+                btn.classList.add("flash-red");
+                btn.addEventListener("animationend", () => btn.classList.remove("flash-red"), { once: true });
+            }
+            return;
+        }
+
+        const cx = this.ui.elements.canvas.width / 2;
+        const cy = this.ui.elements.canvas.height / 2;
+        const count = Math.min(this.state.getEffectiveDust(), MAX_PARTICLES - this.particles.length);
+        
+        for (let i = 0; i < count; i++) {
+            this.particles.push(new Dust(cx, cy, this.state, this.ui.elements.canvas.width, this.ui.elements.canvas.height));
+        }
+
+        this.state.cooldownDuration = this.state.getCooldownMs();
+        this.state.cooldownEnd = performance.now() + this.state.cooldownDuration;
+        this.state.onCooldown = true;
+        this.ui.elements.createDustBtn.classList.add("on-cooldown");
+    }
+
+    spawnMeteor(e) {
+        if (this.state.currentMeteors > 0) {
+            const rect = this.ui.elements.canvas.getBoundingClientRect();
+            this.meteors.push(new Meteor(e.clientX - rect.left, e.clientY - rect.top, this.state, this.ui.elements.canvas.width, this.ui.elements.canvas.height));
+            this.state.currentMeteors -= 1;
+            this.ui.refreshMeteorInventory();
+        }
+    }
+
+    loop(now) {
+        const dt = (now - this.lastTime) / 16.667;
+        this.lastTime = now;
+        const cx = this.ui.elements.canvas.width / 2;
+        const cy = this.ui.elements.canvas.height / 2;
+
+        this.renderer.drawBackground(this.state.starRadius);
+
+        let absorptionOccurred = false;
+
+        // Update entities
+        for (let i = this.particles.length - 1; i >= 0; i--) {
+            if (this.particles[i].update(dt, cx, cy, this.state)) absorptionOccurred = true;
+            if (!this.particles[i].alive) this.particles.splice(i, 1);
+        }
+        for (let i = this.meteors.length - 1; i >= 0; i--) {
+            if (this.meteors[i].update(dt, cx, cy, this.state)) absorptionOccurred = true;
+            if (!this.meteors[i].alive) this.meteors.splice(i, 1);
+        }
+
+        if (absorptionOccurred) this.ui.refreshAll();
+
+        // Physics & Drawing
+        Physics.resolveCollisions(this.particles, this.meteors, this.collisionFlashes, this.ui.elements.canvas.width, this.ui.elements.canvas.height);
+        
+        // Final entity cull post-collision
+        for (let i = this.particles.length - 1; i >= 0; i--) {
+            if (!this.particles[i].alive) this.particles.splice(i, 1);
+        }
+
+        this.particles.forEach(p => p.draw(this.renderer.ctx));
+        this.meteors.forEach(m => m.draw(this.renderer.ctx));
+        this.renderer.drawFlashes(this.collisionFlashes);
+        this.renderer.drawPlanet(this.state.starMass, this.state.starRadius);
+
+        this.ui.updateCooldownBars(now);
+
+        if (this.state.autoPlaying && !this.state.onCooldown && this.particles.length + this.state.getEffectiveDust() <= MAX_PARTICLES) {
+            this.spawnDust(true);
+        }
+
+        requestAnimationFrame((now) => this.loop(now));
+    }
+}
+
+// Start Game
+const game = new Game();
