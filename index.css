@@ -1,41 +1,54 @@
-﻿#upgradeBar {
-    position: fixed;
-    top: 20px;
-    left: 50%;
-    transform: translateX(-50%) translateY(-100%);
-    opacity: 0;
-    pointer-events: none;
-    transition: transform 0.4s cubic-bezier(0.4,0,0.2,1), opacity 0.3s cubic-bezier(0.4,0,0.2,1);
-    z-index: 10;
-}
+:root {
+    /* Color Palette */
+    --bg-main: #1a1a2e;
+    --bg-sidebar: rgba(10, 10, 25, 0.85);
+    --bg-sidebar-mobile: rgba(10, 10, 25, 0.95);
+    
+    /* Base Accent: #e0a35c */
+    --accent-rgb: 224, 163, 92;
+    --color-accent: rgb(var(--accent-rgb));
+    --color-accent-hover: rgba(var(--accent-rgb), 0.15);
+    --color-accent-active: rgba(var(--accent-rgb), 0.3);
+    --color-text-muted: rgba(var(--accent-rgb), 0.6);
+    --color-text-semi: rgba(var(--accent-rgb), 0.7);
+    
+    --color-error: #e05555;
+    --color-error-shadow: rgba(224, 85, 85, 0.5);
 
-#upgradeBar.visible {
-    transform: translateX(-50%) translateY(0);
-    opacity: 1;
-    pointer-events: auto;
-}
+    /* Typography */
+    --font-sm: 12px;
+    --font-base: 14px;
+    --font-md: 16px;
+    --font-lg: 24px;
+    --font-xl: 28px;
+    --font-xxl: 42px;
 
-#homeButton {
-    width: 100%;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    margin-top: auto;
-    padding: 12px 0;
-    background: none;
-    border: none;
-    cursor: pointer;
-}
+    /* Spacing & Sizing */
+    --space-xs: 4px;
+    --space-sm: 12px;
+    --space-md: 20px;
+    --space-lg: 30px;
+    
+    --radius-md: 10px;
+    --radius-lg: 12px;
+    
+    --border-md: 3px;
+    --border-lg: 4px;
 
-#homeButton img {
-    height: 80px;
-    width: auto;
-}
+    /* Z-Index Layers */
+    --z-background: 0;
+    --z-element-low: 1;
+    --z-element-high: 2;
+    --z-ui-base: 10;
+    --z-ui-overlay: 15;
+    --z-mobile-nav: 20;
+    --z-mobile-top: 30;
 
-#meteorInventoryDisplay {
-    color: #e0a35c;
-    font-weight: bold;
-    font-size: 16px;
+    /* Animations & Transitions */
+    --timing-fast: 0.15s;
+    --timing-med: 0.3s;
+    --timing-slow: 0.4s;
+    --ease-bounce: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 * {
@@ -47,46 +60,63 @@
 body {
     width: 100vw;
     height: 100vh;
-    background-color: #1a1a2e;
+    background-color: var(--bg-main);
     overflow: hidden;
     font-family: Arial, sans-serif;
 }
 
+#playArea {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: var(--z-background);
+}
+
+#gameCanvas {
+    display: block;
+}
+
+/* --- Sidebar --- */
 #sidebar {
     position: fixed;
     top: 0;
     left: 0;
     width: 200px;
     height: 100vh;
-    background-color: rgba(10, 10, 25, 0.85);
-    border-right: 2px solid rgba(224, 163, 92, 0.3);
-    z-index: 15;
+    background-color: var(--bg-sidebar);
+    border-right: 2px solid var(--color-accent-active);
+    z-index: var(--z-ui-overlay);
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding: 30px 15px;
+    padding: var(--space-lg) 15px;
 }
 
 #massDisplay {
-    color: #e0a35c;
-    font-size: 42px;
+    color: var(--color-accent);
+    font-size: var(--font-xxl);
     font-weight: bold;
     margin: 0;
 }
 
 #massLabel {
-    color: rgba(224, 163, 92, 0.6);
-    font-size: 14px;
+    color: var(--color-text-muted);
+    font-size: var(--font-base);
     letter-spacing: 3px;
     margin-top: 2px;
-    margin-bottom: 30px;
+    margin-bottom: var(--space-lg);
 }
 
 #statsList {
     width: 100%;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: var(--space-sm);
 }
 
 .statRow {
@@ -96,39 +126,35 @@ body {
 }
 
 .statLabel {
-    color: rgba(224, 163, 92, 0.6);
-    font-size: 16px;
+    color: var(--color-text-muted);
+    font-size: var(--font-md);
 }
 
 .statValue {
-    color: #e0a35c;
+    color: var(--color-accent);
     font-weight: bold;
-    font-size: 16px;
+    font-size: var(--font-md);
 }
 
-#shop {
-    color: #e0a35c;
-    font-size: 24px;
-    font-weight: bold;
-    margin-top: 2rem;;
-    align-items: center;
-    background: none;
-    cursor: pointer;
-    border: none;
-}
-
-#shop:hover {
-    transform: scale(1.1);
-}
-
+/* --- Upgrades --- */
 #upgradeBar {
     position: fixed;
-    top: 20px;
+    top: var(--space-md);
     left: 50%;
-    transform: translateX(-50%);
+    transform: translateX(-50%) translateY(-100%);
+    opacity: 0;
+    pointer-events: none;
     display: flex;
-    gap: 20px;
-    z-index: 10;
+    gap: var(--space-md);
+    z-index: var(--z-ui-base);
+    transition: transform var(--timing-slow) var(--ease-bounce), 
+                opacity var(--timing-med) var(--ease-bounce);
+}
+
+#upgradeBar.visible {
+    transform: translateX(-50%) translateY(0);
+    opacity: 1;
+    pointer-events: auto;
 }
 
 .upgradeBlock {
@@ -141,45 +167,27 @@ body {
     width: 5rem;
     min-width: 10vw;
     height: 50px;
-    font-size: 24px;
+    font-size: var(--font-lg);
     background: none;
-    border: 3px solid #e0a35c;
-    border-radius: 10px;
-    color: #e0a35c;
+    border: var(--border-md) solid var(--color-accent);
+    border-radius: var(--radius-md);
+    color: var(--color-accent);
     font-weight: bold;
     cursor: pointer;
-    transition: background-color 0.15s, color 0.15s, transform 0.15s;
+    transition: background-color var(--timing-fast), 
+                color var(--timing-fast), 
+                transform var(--timing-fast);
 }
 
 .upgradeButton:hover {
-    background-color: rgba(224, 163, 92, 0.15);
+    background-color: var(--color-accent-hover);
     transform: scale(1.1);
-    z-index: 2;
+    z-index: var(--z-element-high);
 }
 
 .upgradeButton:active {
-    background-color: #e0a35c;
-    color: #1a1a2e;
-}
-
-.upgradeBlock > p {
-    color: rgba(224, 163, 92, 0.7);
-    font-weight: bold;
-    font-size: 16px;
-    margin-top: 4px;
-}
-
-.upgradeBlock > p::before {
-    content: "Cost: ";
-}
-
-@keyframes flashRed {
-    0%   { border-color: #e05555; box-shadow: 0 0 12px rgba(224, 85, 85, 0.5); }
-    100% { border-color: #e0a35c; box-shadow: none; }
-}
-
-.upgradeButton.flash-red {
-    animation: flashRed 0.4s ease-out;
+    background-color: var(--color-accent);
+    color: var(--bg-main);
 }
 
 .upgradeButton.maxed {
@@ -187,31 +195,42 @@ body {
     cursor: not-allowed;
 }
 
-#playArea {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100vw;
-    height: 100vh;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    z-index: 0;
+.upgradeBlock > p {
+    color: var(--color-text-semi);
+    font-weight: bold;
+    font-size: var(--font-md);
+    margin-top: var(--space-xs);
 }
 
-#gameCanvas {
-    display: block;
+.upgradeBlock > p::before {
+    content: "Cost: ";
+}
+
+/* --- Interaction Elements --- */
+#shop {
+    color: var(--color-accent);
+    font-size: var(--font-lg);
+    font-weight: bold;
+    margin-top: 2rem;
+    align-items: center;
+    background: none;
+    cursor: pointer;
+    border: none;
+}
+
+#shop:hover {
+    transform: scale(1.1);
 }
 
 #bottomBar {
     position: fixed;
-    bottom: 20px;
+    bottom: var(--space-md);
     left: 50%;
     transform: translateX(-50%);
-    z-index: 10;
+    z-index: var(--z-ui-base);
     display: flex;
     align-items: flex-end;
-    gap: 12px;
+    gap: var(--space-sm);
 }
 
 #bottomBarInteractive {
@@ -224,21 +243,21 @@ body {
     position: relative;
     width: 500px;
     height: 60px;
-    font-size: 28px;
+    font-size: var(--font-xl);
     font-weight: bold;
     background: none;
-    border: 4px solid #e0a35c;
-    border-radius: 12px;
-    color: #e0a35c;
+    border: var(--border-lg) solid var(--color-accent);
+    border-radius: var(--radius-lg);
+    color: var(--color-accent);
     cursor: pointer;
-    transition: background-color 0.15s, color 0.15s;
+    transition: background-color var(--timing-fast), color var(--timing-fast);
     letter-spacing: 2px;
     overflow: hidden;
 }
 
 #createDustText {
     position: relative;
-    z-index: 2;
+    z-index: var(--z-element-high);
     pointer-events: none;
 }
 
@@ -248,8 +267,8 @@ body {
     bottom: 0;
     height: 100%;
     width: 0%;
-    background-color: rgba(224, 163, 92, 0.25);
-    z-index: 1;
+    background-color: rgba(var(--accent-rgb), 0.25);
+    z-index: var(--z-element-low);
     transition: none;
 }
 
@@ -259,52 +278,73 @@ body {
 }
 
 #createDust:hover {
-    background-color: rgba(224, 163, 92, 0.15);
+    background-color: var(--color-accent-hover);
 }
 
 #createDust:active {
-    background-color: #e0a35c;
-    color: #1a1a2e;
+    background-color: var(--color-accent);
+    color: var(--bg-main);
 }
 
 #autoPlayBtn {
     width: 60px;
     height: 60px;
     background: none;
-    border: 4px solid #e0a35c;
-    border-radius: 12px;
-    color: #e0a35c;
+    border: var(--border-lg) solid var(--color-accent);
+    border-radius: var(--radius-lg);
+    color: var(--color-accent);
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: background-color 0.15s, color 0.15s;
+    transition: background-color var(--timing-fast), color var(--timing-fast);
 }
 
 #autoPlayBtn:hover {
-    background-color: rgba(224, 163, 92, 0.15);
+    background-color: var(--color-accent-hover);
 }
 
 #autoPlayBtn.active {
-    background-color: rgba(224, 163, 92, 0.3);
-    border-color: #e0a35c;
+    background-color: var(--color-accent-active);
+    border-color: var(--color-accent);
 }
 
+#homeButton {
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin-top: auto;
+    padding: var(--space-sm) 0;
+    background: none;
+    border: none;
+    cursor: pointer;
+}
+
+#homeButton img {
+    height: 80px;
+    width: auto;
+}
+
+#meteorInventoryDisplay {
+    color: var(--color-accent);
+    font-weight: bold;
+    font-size: var(--font-md);
+}
+
+/* Animations */
+@keyframes flashRed {
+    0%   { border-color: var(--color-error); box-shadow: 0 0 12px var(--color-error-shadow); }
+    100% { border-color: var(--color-accent); box-shadow: none; }
+}
+
+.upgradeButton.flash-red {
+    animation: flashRed var(--timing-slow) ease-out;
+}
+
+/* --- Media Queries --- */
 @media (max-width: 1050px) {
-    #homeButton {
-        position: absolute;
-        right: 12px;
-        top: 50%;
-        transform: translateY(-50%);
-        margin-top: 0;
-        width: auto;
-        padding: 0;
-        background: none;
-        border: none;
-        z-index: 30;
-    }
     #sidebar {
-        position: fixed;
         position: fixed;
         top: 0;
         left: 0;
@@ -317,33 +357,47 @@ body {
         justify-content: flex-start;
         padding: 0 6px;
         border-right: none;
-        border-bottom: 2px solid rgba(224, 163, 92, 0.3);
-        z-index: 20;
-        background-color: rgba(10, 10, 25, 0.95);
-        box-sizing: border-box;
+        border-bottom: 2px solid var(--color-accent-active);
+        z-index: var(--z-mobile-nav);
+        background-color: var(--bg-sidebar-mobile);
         overflow-x: auto;
         overflow-y: hidden;
-        position: relative;
     }
+
+    #homeButton {
+        position: absolute;
+        right: var(--space-sm);
+        top: 50%;
+        transform: translateY(-50%);
+        margin-top: 0;
+        width: auto;
+        padding: 0;
+        z-index: var(--z-mobile-top);
+    }
+    
+    #homeButton img {
+        height: 60px;
+    }
+
     #massDisplay {
-        font-size: 24px;
+        font-size: var(--font-lg);
         margin: 0 10px 0 0;
         max-width: 80px;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
     }
+
     #massLabel {
         font-size: 20px;
         margin: 0 10px 0 0;
-        margin-bottom: 0;
-        margin-top: 0;
         letter-spacing: 1px;
         padding-right: 0.5rem;
         max-width: 120px;
         overflow: hidden;
         white-space: nowrap;
     }
+
     #statsList {
         flex-direction: row;
         gap: 1rem;
@@ -352,12 +406,14 @@ body {
         overflow-x: auto;
         overflow-y: hidden;
         max-width: 70vw;
-        scrollbar-width: none; /* Firefox */
-        -ms-overflow-style: none; /* IE and Edge */
+        scrollbar-width: none; 
+        -ms-overflow-style: none;
     }
+
     #statsList::-webkit-scrollbar {
-        display: none; /* Chrome, Safari, Opera */
+        display: none; 
     }
+
     .statRow {
         flex-direction: column;
         align-items: flex-start;
@@ -365,23 +421,22 @@ body {
         min-width: 1rem;
         max-width: 5rem;
     }
+
     .statLabel, .statValue {
-        font-size: 16px;
+        font-size: var(--font-md);
         max-width: 80px;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
     }
+
     #upgradeBar {
-        position: fixed;
         top: 90px;
-        left: 50%;
-        transform: translateX(-50%);
         width: 100vw;
         justify-content: center;
         flex-direction: row;
         gap: 16px;
-        z-index: 15;
+        z-index: var(--z-ui-overlay);
         background: none;
     }
 
@@ -398,12 +453,8 @@ body {
 
     #shop {
         margin-top: 0;
-        font-size: 18px;
+        font-size: var(--font-md);
         margin-left: 1rem;
-    }
-
-    #homeButton img {
-        height: 60px;
     }
 }
 
@@ -413,33 +464,33 @@ body {
     }
 
     #massDisplay {
-        font-size: 18px;
+        font-size: var(--font-md);
         max-width: 60px;
     }
+
     #massLabel {
-        font-size: 14px;
+        font-size: var(--font-base);
         max-width: 100px;
     }
+
     .statLabel, .statValue {
-        font-size: 12px;
+        font-size: var(--font-sm);
         max-width: 60px;
     }
+
     .upgradeButton {
         width: 3rem;
-        font-size: auto;
     }
+
     #upgradeBar {
         flex-wrap: wrap;
         width: 90vw;
-        row-gap: 4px;
-        justify-content: center;
-        left: 50%;
-        transform: translateX(-50%);
+        row-gap: var(--space-xs);
         right: unset;
     }
 
     #shop {
-        font-size: 14px;
+        font-size: var(--font-base);
     }
 
     #homeButton {
