@@ -1,15 +1,15 @@
 // --- Debugging ---
 const STARTING_STAR_MASS = 100;
-const STARTING_DUST_LEVEL = 20;
-const STARTING_SIZE_LEVEL = 20;
-const STARTING_SPEED_LEVEL = 20;
+const STARTING_DUST_LEVEL = 1;
+const STARTING_SIZE_LEVEL = 1;
+const STARTING_SPEED_LEVEL = 1;
 
 // --- Constants ---
 const MAX_STAR_MASS = 10000;
 const MAX_DUST_LEVEL = 20;
 const MAX_SIZE_LEVEL = 20;
 const MAX_SPEED_LEVEL = 20;
-const MAX_PARTICLES = 150;
+const MAX_PARTICLES = 225;
 const DUST_MASS_GRAVITY_SCALE = 0.01;
 const MAX_METEOR_CAPACITY_LEVEL = 20;
 const MAX_METEOR_CHARGE_LEVEL = 20;
@@ -63,33 +63,41 @@ class OrbitalEntity {
         this.mass = mass;
         this.radius = dustRadius(mass);
         this.alive = true;
-        this.trail = [];
         this.vx = 0;
         this.vy = 0;
-        // Defaults for drawing; overridden by subclasses
+        
         this.colorR = 255; this.colorG = 255; this.colorB = 255;
         this.color = `rgb(255,255,255)`;
         this.trailAlphaMult = 0.5;
         this.trailRadiusMult = 0.7;
-        this.maxTrail = 30;
+        
+        // Fixed buffer initialization
+        this.maxTrail = 32; 
+        this.trailX = new Float32Array(this.maxTrail);
+        this.trailY = new Float32Array(this.maxTrail);
+        this.trailPtr = 0;
+        this.trailCount = 0;
     }
 
     updateTrail() {
-        this.trail.push({ x: this.x, y: this.y });
-        if (this.trail.length > this.maxTrail) {
-            this.trail.splice(0, this.trail.length - this.maxTrail);
-        }
+        this.trailX[this.trailPtr] = this.x;
+        this.trailY[this.trailPtr] = this.y;
+        this.trailPtr = (this.trailPtr + 1) % this.maxTrail;
+        if (this.trailCount < this.maxTrail) this.trailCount++;
     }
 
     draw(ctx) {
-        const len = this.trail.length;
-        if (len > 1) {
-            for (let i = 0; i < len - 1; i++) {
-                const t = i / len;
+        if (this.trailCount > 1) {
+            const oldestIdx = this.trailCount < this.maxTrail ? 0 : this.trailPtr;
+            
+            for (let i = 0; i < this.trailCount - 1; i++) {
+                const idx = (oldestIdx + i) % this.maxTrail;
+                const t = i / this.trailCount;
                 const alpha = t * this.trailAlphaMult;
                 const r = this.radius * t * this.trailRadiusMult;
+                
                 ctx.beginPath();
-                ctx.arc(this.trail[i].x, this.trail[i].y, Math.max(r, 0.5), 0, Math.PI * 2);
+                ctx.arc(this.trailX[idx], this.trailY[idx], Math.max(r, 0.5), 0, Math.PI * 2);
                 ctx.fillStyle = `rgba(${this.colorR}, ${this.colorG}, ${this.colorB}, ${alpha})`;
                 ctx.fill();
             }
@@ -152,7 +160,7 @@ class Dust extends OrbitalEntity {
         this.y += this.vy;
 
         const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
-        this.maxTrail = Math.min(Math.floor(5 + this.mass * 10 + speed * 5), 53);
+        //this.maxTrail = Math.min(Math.floor(5 + this.mass * 10 + speed * 5), 53);
         this.updateTrail();
         return false;
     }
@@ -162,6 +170,7 @@ class Meteor extends OrbitalEntity {
     constructor(x, y, gameState, canvasWidth, canvasHeight) {
         const mass = gameState.getEffectiveMass() * 20;
         super(x, y, mass);
+        this.isMeteor = true;
         this.radius = dustRadius(this.mass) * 1.2;
 
         this.colorR = 180 + Math.floor(Math.random() * 40);
@@ -201,8 +210,146 @@ class Meteor extends OrbitalEntity {
     }
 }
 
+// --- Physics Helpers ---
+class Rectangle {
+    constructor(x, y, w, h) {
+        this.x = x; this.y = y; this.w = w; this.h = h;
+    }
+    contains(entity) {
+        return (entity.x >= this.x - this.w &&
+                entity.x <= this.x + this.w &&
+                entity.y >= this.y - this.h &&
+                entity.y <= this.y + this.h);
+    }
+    intersects(range) {
+        if (range.x - range.w > this.x + this.w) return false;
+        if (range.x + range.w < this.x - this.w) return false;
+        if (range.y - range.h > this.y + this.h) return false;
+        if (range.y + range.h < this.y - this.h) return false;
+        return true;
+    }
+}
+
+class Quadtree {
+    constructor(boundary, capacity) {
+        this.boundary = boundary;
+        this.capacity = capacity;
+        this.entities = [];
+        this.divided = false;
+    }
+
+    subdivide() {
+        const x = this.boundary.x; const y = this.boundary.y;
+        const w = this.boundary.w; const h = this.boundary.h;
+        this.northeast = new Quadtree(new Rectangle(x + w / 2, y - h / 2, w / 2, h / 2), this.capacity);
+        this.northwest = new Quadtree(new Rectangle(x - w / 2, y - h / 2, w / 2, h / 2), this.capacity);
+        this.southeast = new Quadtree(new Rectangle(x + w / 2, y + h / 2, w / 2, h / 2), this.capacity);
+        this.southwest = new Quadtree(new Rectangle(x - w / 2, y + h / 2, w / 2, h / 2), this.capacity);
+        this.divided = true;
+    }
+
+    insert(entity) {
+        if (!this.boundary.contains(entity)) return false;
+
+        if (this.entities.length < this.capacity) {
+            this.entities.push(entity);
+            return true;
+        }
+
+        if (!this.divided) this.subdivide();
+
+        if (this.northeast.insert(entity)) return true;
+        if (this.northwest.insert(entity)) return true;
+        if (this.southeast.insert(entity)) return true;
+        if (this.southwest.insert(entity)) return true;
+        
+        return false;
+    }
+
+    query(range, found = []) {
+        if (!this.boundary.intersects(range)) return found;
+
+        for (let i = 0; i < this.entities.length; i++) {
+            if (range.contains(this.entities[i])) {
+                found.push(this.entities[i]);
+            }
+        }
+
+        if (this.divided) {
+            this.northwest.query(range, found);
+            this.northeast.query(range, found);
+            this.southwest.query(range, found);
+            this.southeast.query(range, found);
+        }
+        return found;
+    }
+}
+
+
 // --- Physics System ---
 class Physics {
+    static resolveCollisions(particles, meteors, collisionFlashes, canvasWidth, canvasHeight) {
+        const boundary = new Rectangle(canvasWidth / 2, canvasHeight / 2, canvasWidth / 2, canvasHeight / 2);
+        const qtree = new Quadtree(boundary, 4);
+
+        // Populate Tree
+        for (let i = 0; i < particles.length; i++) {
+            if (!particles[i].alive) continue;
+            qtree.insert(particles[i]);
+        }
+        for (let i = 0; i < meteors.length; i++) {
+            if (!meteors[i].alive) continue;
+            qtree.insert(meteors[i]);
+        }
+
+        // Resolve Dust-to-Dust and Dust-to-Meteor via Tree
+        for (let i = 0; i < particles.length; i++) {
+            const a = particles[i];
+            if (!a.alive) continue;
+
+            const range = new Rectangle(a.x, a.y, a.radius * 4, a.radius * 4);
+            const candidates = qtree.query(range);
+
+            for (let j = 0; j < candidates.length; j++) {
+                const b = candidates[j];
+                if (a === b || !b.alive) continue;
+
+                if (b.isMeteor) {
+                     // Let meteor logic handle this collision below to avoid double processing
+                     continue;
+                }
+                this.checkDustCollision(a, b, collisionFlashes);
+            }
+        }
+
+        // Resolve Meteor-to-Dust
+        for (let i = 0; i < meteors.length; i++) {
+            const m = meteors[i];
+            if (!m.alive) continue;
+
+            const range = new Rectangle(m.x, m.y, m.radius * 2, m.radius * 2);
+            const candidates = qtree.query(range);
+
+            for (let j = 0; j < candidates.length; j++) {
+                const d = candidates[j];
+                if (!d.alive || d.mass >= m.mass) continue;
+
+                const dx = m.x - d.x;
+                const dy = m.y - d.y;
+                if (dx * dx + dy * dy < (m.radius + d.radius) * (m.radius + d.radius)) {
+                    collisionFlashes.push({ x: (m.x + d.x) / 2, y: (m.y + d.y) / 2, life: 1.0, radius: (m.radius + d.radius) * 1.5 });
+                    m.mass += d.mass;
+                    m.radius = dustRadius(m.mass) * 1.2;
+                    d.alive = false;
+                }
+            }
+        }
+    }
+
+
+
+
+    
     static resolveCollisions(particles, meteors, collisionFlashes, canvasWidth, canvasHeight) {
         const gridSize = 60;
         const gridCols = Math.ceil(canvasWidth / gridSize);
@@ -348,9 +495,21 @@ class UIManager {
             canvas: document.getElementById("gameCanvas")
         };
 
+        // Cache for State Diffing
+        this.lastDisplayedState = {};
+        
         this.upgradeBarTimeout = null;
         this.bindEvents();
-        this.refreshAll();
+        this.requestUIUpdate(); // Initial render
+    }
+
+    // Helper to conditionally update text only if value changed
+    updateDOMElement(key, element, value) {
+        if (!element) return;
+        if (this.lastDisplayedState[key] === value) return;
+        
+        element.textContent = value;
+        this.lastDisplayedState[key] = value;
     }
 
     bindEvents() {
@@ -398,9 +557,7 @@ class UIManager {
 
     tryPurchase(btn, currentLevel, maxLevel, onSuccess) {
         if (currentLevel >= maxLevel) return;
-        const cost = this.state.getUpgradeCost(currentLevel + 1); // Adjust based on original offset logic
         
-        // Match original offset logic where dust/size/speed passed current level, meteor passed current + 1
         const actualCost = btn.id.includes("meteor") ? this.state.getUpgradeCost(currentLevel + 1) : this.state.getUpgradeCost(currentLevel);
         
         if (this.state.starMass < actualCost) {
@@ -427,33 +584,44 @@ class UIManager {
         clearTimeout(this.upgradeBarTimeout);
     }
 
-    refreshAll() {
-        this.elements.massDisplay.textContent = Math.floor(this.state.starMass);
-        this.elements.dustLevelDisplay.textContent = this.state.dustLevel;
-        this.elements.sizeLevelDisplay.textContent = this.state.sizeLevel;
-        this.elements.speedLevelDisplay.textContent = this.state.speedLevel;
+    requestUIUpdate() {
+        // Labels & Numbers
+        this.updateDOMElement('mass', this.elements.massDisplay, Math.floor(this.state.starMass));
+        this.updateDOMElement('dustLvl', this.elements.dustLevelDisplay, this.state.dustLevel);
+        this.updateDOMElement('sizeLvl', this.elements.sizeLevelDisplay, this.state.sizeLevel);
+        this.updateDOMElement('speedLvl', this.elements.speedLevelDisplay, this.state.speedLevel);
 
-        this.elements.dustCostDisplay.textContent = this.state.dustLevel >= MAX_DUST_LEVEL ? "MAX" : this.state.getUpgradeCost(this.state.dustLevel);
-        this.elements.sizeCostDisplay.textContent = this.state.sizeLevel >= MAX_SIZE_LEVEL ? "MAX" : this.state.getUpgradeCost(this.state.sizeLevel);
-        this.elements.speedCostDisplay.textContent = this.state.speedLevel >= MAX_SPEED_LEVEL ? "MAX" : this.state.getUpgradeCost(this.state.speedLevel);
+        // Costs
+        this.updateDOMElement('dustCost', this.elements.dustCostDisplay, this.state.dustLevel >= MAX_DUST_LEVEL ? "MAX" : this.state.getUpgradeCost(this.state.dustLevel));
+        this.updateDOMElement('sizeCost', this.elements.sizeCostDisplay, this.state.sizeLevel >= MAX_SIZE_LEVEL ? "MAX" : this.state.getUpgradeCost(this.state.sizeLevel));
+        this.updateDOMElement('speedCost', this.elements.speedCostDisplay, this.state.speedLevel >= MAX_SPEED_LEVEL ? "MAX" : this.state.getUpgradeCost(this.state.speedLevel));
         
         if (this.elements.meteorCapacityCostDisplay) {
-            this.elements.meteorCapacityCostDisplay.textContent = this.state.meteorCapacityLevel >= MAX_METEOR_CAPACITY_LEVEL ? "MAX" : this.state.getUpgradeCost(this.state.meteorCapacityLevel + 1);
+            this.updateDOMElement('metCapCost', this.elements.meteorCapacityCostDisplay, this.state.meteorCapacityLevel >= MAX_METEOR_CAPACITY_LEVEL ? "MAX" : this.state.getUpgradeCost(this.state.meteorCapacityLevel + 1));
         }
         if (this.elements.meteorChargeCostDisplay) {
-            this.elements.meteorChargeCostDisplay.textContent = this.state.meteorChargeLevel >= MAX_METEOR_CHARGE_LEVEL ? "MAX" : this.state.getUpgradeCost(this.state.meteorChargeLevel + 1);
+            this.updateDOMElement('metChrgCost', this.elements.meteorChargeCostDisplay, this.state.meteorChargeLevel >= MAX_METEOR_CHARGE_LEVEL ? "MAX" : this.state.getUpgradeCost(this.state.meteorChargeLevel + 1));
         }
 
         this.refreshMeteorInventory();
         this.updateMaxedButtons();
     }
 
+    refreshAll() {
+        this.requestUIUpdate();
+    }
+
     refreshMeteorInventory() {
         if (this.elements.meteorInventoryDisplay) {
-            this.elements.meteorInventoryDisplay.textContent = `${this.state.currentMeteors} / ${this.state.meteorCapacityLevel}`;
+            const inventoryString = `${this.state.currentMeteors} / ${this.state.meteorCapacityLevel}`;
+            this.updateDOMElement('metInventory', this.elements.meteorInventoryDisplay, inventoryString);
         }
+        
         if (this.elements.meteorRechargeBar && (this.state.currentMeteors >= this.state.meteorCapacityLevel || this.state.meteorCapacityLevel === 0)) {
-            this.elements.meteorRechargeBar.style.width = "0%";
+            if (this.lastDisplayedState['meteorPct'] !== 0) {
+                this.elements.meteorRechargeBar.style.width = "0%";
+                this.lastDisplayedState['meteorPct'] = 0;
+            }
         }
     }
 
@@ -466,34 +634,53 @@ class UIManager {
     }
 
     updateCooldownBars(now) {
+        // Dust Cooldown Bar
         if (this.state.onCooldown) {
             const remaining = this.state.cooldownEnd - now;
             if (remaining <= 0) {
                 this.state.onCooldown = false;
                 this.elements.cooldownBar.style.width = "0%";
+                this.lastDisplayedState['cooldownPct'] = 0;
                 this.elements.createDustBtn.classList.remove("on-cooldown");
                 if (this.state.autoPlaying) this.game.spawnDust(true);
             } else {
-                this.elements.cooldownBar.style.width = ((1 - remaining / this.state.cooldownDuration) * 100) + "%";
+                const targetPct = (1 - remaining / this.state.cooldownDuration) * 100;
+                const lastPct = this.lastDisplayedState['cooldownPct'] || 0;
+                
+                // Only write to DOM if change is > 0.5%
+                if (Math.abs(targetPct - lastPct) > 0.5) {
+                    this.elements.cooldownBar.style.width = targetPct + "%";
+                    this.lastDisplayedState['cooldownPct'] = targetPct;
+                }
             }
         }
 
+        // Meteor Recharge Bar
         if (this.state.meteorCapacityLevel > 0) {
             if (this.state.currentMeteors >= this.state.meteorCapacityLevel) {
                 this.state.meteorCooldownEnd = 0;
-                if (this.elements.meteorRechargeBar) this.elements.meteorRechargeBar.style.width = "0%";
+                if (this.lastDisplayedState['meteorPct'] !== 0) {
+                    if (this.elements.meteorRechargeBar) this.elements.meteorRechargeBar.style.width = "0%";
+                    this.lastDisplayedState['meteorPct'] = 0;
+                }
             } else {
                 if (this.state.meteorCooldownEnd === 0) {
                     this.state.meteorCooldownEnd = now + this.state.getMeteorRechargeSeconds() * 1000;
                 }
+                
                 if (now >= this.state.meteorCooldownEnd) {
                     this.state.currentMeteors = Math.min(this.state.currentMeteors + 1, this.state.meteorCapacityLevel);
                     this.state.meteorCooldownEnd = this.state.currentMeteors < this.state.meteorCapacityLevel ? now + this.state.getMeteorRechargeSeconds() * 1000 : 0;
                     this.refreshMeteorInventory();
                 } else if (this.elements.meteorRechargeBar) {
                     const total = this.state.getMeteorRechargeSeconds() * 1000;
-                    const pct = Math.max(0, Math.min(1, (total - (this.state.meteorCooldownEnd - now)) / total)) * 100;
-                    this.elements.meteorRechargeBar.style.width = pct + "%";
+                    const targetPct = Math.max(0, Math.min(1, (total - (this.state.meteorCooldownEnd - now)) / total)) * 100;
+                    const lastPct = this.lastDisplayedState['meteorPct'] || 0;
+
+                    if (Math.abs(targetPct - lastPct) > 0.5) {
+                        this.elements.meteorRechargeBar.style.width = targetPct + "%";
+                        this.lastDisplayedState['meteorPct'] = targetPct;
+                    }
                 }
             }
         }
@@ -506,6 +693,7 @@ class Renderer {
         this.canvas = canvas;
         this.ctx = canvas.getContext("2d");
         this.stars = [];
+        this.bgRotation = 0;
         this.generateStars();
     }
 
@@ -521,7 +709,9 @@ class Renderer {
         }
     }
 
-    drawBackground(starRadius) {
+    drawBackground(starRadius, dt = 1) {
+        this.bgRotation -= 0.0005 * dt; // Background rotation adjustment
+
         const scale = Math.min(this.canvas.width * 2, this.canvas.height * 2) / VIRTUAL_STAR_SIZE;
         const centerX = this.canvas.width / 2;
         const centerY = this.canvas.height / 2;
@@ -529,13 +719,25 @@ class Renderer {
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
         this.ctx.fillStyle = "#fff";
         
+        // Save the context state before transforming
+        this.ctx.save();
+        
+        // Move the canvas origin to the center, then rotate
+        this.ctx.translate(centerX, centerY);
+        this.ctx.rotate(this.bgRotation);
+
         const currentDeadZone = starRadius * STAR_DEADZONE_MULT / scale;
         for (const star of this.stars) {
             if (Math.sqrt(star.dx * star.dx + star.dy * star.dy) < currentDeadZone) continue;
             this.ctx.beginPath();
-            this.ctx.arc(centerX + star.dx * scale, centerY + star.dy * scale, star.size * scale, 0, 2 * Math.PI);
+            
+            // Draw relative to the new (0,0) center origin
+            this.ctx.arc(star.dx * scale, star.dy * scale, star.size * scale, 0, 2 * Math.PI);
             this.ctx.fill();
         }
+
+        // Restore the context state so the planet and entities don't rotate
+        this.ctx.restore();
     }
 
     drawPlanet(starMass, starRadius) {
@@ -658,7 +860,7 @@ class Game {
         const cx = this.ui.elements.canvas.width / 2;
         const cy = this.ui.elements.canvas.height / 2;
 
-        this.renderer.drawBackground(this.state.starRadius);
+        this.renderer.drawBackground(this.state.starRadius, dt);
 
         let absorptionOccurred = false;
 
