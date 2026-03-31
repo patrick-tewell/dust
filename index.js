@@ -413,6 +413,7 @@ class UIManager {
             cooldownBar: document.getElementById("cooldownBar"),
             meteorRechargeBar: document.getElementById("meteorRechargeBar"),
             massDisplay: document.getElementById("massDisplay"),
+            massLabel: document.getElementById("massLabel"),
             dustLevelDisplay: document.getElementById("dustLevelDisplay"),
             sizeLevelDisplay: document.getElementById("sizeLevelDisplay"),
             speedLevelDisplay: document.getElementById("speedLevelDisplay"),
@@ -516,7 +517,26 @@ class UIManager {
 
     requestUIUpdate() {
         // Labels & Numbers
-        this.updateDOMElement('mass', this.elements.massDisplay, Math.floor(this.state.starMass));
+        let rawMass = this.state.starMass;
+        let massExponent = 29;
+        let scaledValue = rawMass / 1000;
+    
+        if (scaledValue >= 10) {
+            massExponent++;
+            scaledValue /= 10;
+        }
+    
+        let massNotation = scaledValue.toFixed(1);
+        let massUnit = `&times; 10<sup>${massExponent}</sup> kg`;
+    
+        this.updateDOMElement('mass', this.elements.massDisplay, massNotation);
+        
+        // Use innerHTML here because the label contains <sup> tags
+        if (this.elements.massLabel && this.lastDisplayedState['massLabel'] !== massUnit) {
+            this.elements.massLabel.innerHTML = massUnit;
+            this.lastDisplayedState['massLabel'] = massUnit;
+        }
+        
         this.updateDOMElement('dustLvl', this.elements.dustLevelDisplay, this.state.dustLevel);
         this.updateDOMElement('sizeLvl', this.elements.sizeLevelDisplay, this.state.sizeLevel);
         this.updateDOMElement('speedLvl', this.elements.speedLevelDisplay, this.state.speedLevel);
